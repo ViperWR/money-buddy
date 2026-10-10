@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Money Buddy</title>
 <meta name="theme-color" content="#0d4a37">
 <meta name="description" content="Budgets, income and savings goals in one calm, private app.">
@@ -38,7 +43,7 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.45;margin:0;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:14px 120px;display:flex;flex-direction:column;gap:20px}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:calc(14px + env(safe-area-inset-top,0px)) 120px;display:flex;flex-direction:column;gap:20px}
 h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.02em}
 h2{font-size:1.06rem;font-weight:700}
 .title{font-size:1.6rem;font-weight:800;letter-spacing:-.03em}
@@ -178,7 +183,7 @@ form{display:flex;flex-direction:column;gap:14px}
 .field>label,.flabel{font-size:.8rem;font-weight:700;color:var(--muted)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .two>*{min-width:0}
-input,select{font:inherit;font-weight:600;color:var(--ink);background:var(--sunk);border:1.5px solid transparent;border-radius:14px;padding:12px 14px;width:100%;transition:border-color .15s}
+input,select{font:inherit;font-size:16px;font-weight:600;color:var(--ink);background:var(--sunk);border:1.5px solid transparent;border-radius:14px;padding:12px 14px;width:100%;transition:border-color .15s}
 input:focus,select:focus{border-color:var(--brand);outline:none;background:var(--surface)}
 input.amount{font-size:2rem;font-weight:800;letter-spacing:-.02em;padding:12px 14px;font-variant-numeric:tabular-nums}
 input[type=checkbox]{width:20px;height:20px;accent-color:var(--brand)}
