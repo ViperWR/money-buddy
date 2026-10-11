@@ -129,6 +129,9 @@ button.card:active{transform:scale(.985)}
 .tx .what div:first-child{font-weight:600}
 .tx .what div:last-child{font-size:.78rem;color:var(--muted);font-weight:500}
 .tx .amt{font-weight:700;white-space:nowrap}
+button.tx{width:100%;background:none;border:none;text-align:left;cursor:pointer;color:inherit;font:inherit;border-radius:0;transition:background .15s}
+button.tx:active{background:var(--sunk)}
+.tx .rep{display:inline-block;margin-left:4px;font-size:.7rem}
 .tx .del{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px 8px;border-radius:8px;font-size:.8rem;font-weight:700}
 .tx .del.armed{color:#fff;background:var(--bad)}
 .plus{color:var(--good)}
@@ -194,6 +197,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--brand)}
 .btn.danger{background:none;color:var(--bad);border:1.5px solid var(--bad);flex:0 1 auto}
 .btn.danger.armed{background:var(--bad);color:#fff}
 .preview{background:var(--brand-soft);border-radius:14px;padding:12px 14px;font-size:.88rem;display:flex;flex-direction:column;gap:4px;font-weight:500}
+.toast button{background:none;border:none;color:var(--brand-line);font:inherit;font-weight:800;margin-left:14px;padding:2px 0;cursor:pointer}
 .toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:99px;font-size:.86rem;font-weight:700;z-index:20;animation:up .25s var(--ease);white-space:nowrap}
 
 /* Entrance motion, only on tab open (never leaves content hidden at rest) */
@@ -307,10 +311,15 @@ function postDue(){
   const t=today(); let n=0;
   S.recurring.forEach(r=>{
     for(let k=0;k<2000;k++){const d=occurrence(r,k); if(d>t) break; if(d<=(r.posted||"")) continue;
-      S.incomes.push({id:uid(),amount:r.amount,source:r.source,date:d,note:r.note,recurringId:r.id}); r.posted=d; n++;}
+      if(r.kind==="expense") S.expenses.push({id:uid(),amount:r.amount,budgetId:r.budgetId&&budgetById(r.budgetId)?r.budgetId:null,date:d,note:r.note,recurringId:r.id});
+      else S.incomes.push({id:uid(),amount:r.amount,source:r.source,date:d,note:r.note,recurringId:r.id});
+      r.posted=d; n++;}
   });
   return n;
 }
+const recName=r=>r.kind==="expense"?(r.note||budgetById(r.budgetId)?.name||"Bill"):(r.note||r.source);
+const recColor=r=>r.kind==="expense"?(budgetById(r.budgetId)?.color||"var(--muted)"):"var(--good)";
+const REPEATS=[["none","Once"],["monthly","Monthly"],["fortnightly","2 weeks"],["weekly","Weekly"]];
 const ordinal=n=>{const s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0])};
 function freqText(r){
   if(r.freq==="monthly") return `Every month on the ${ordinal(parse(r.start).getDate())}`;
@@ -441,7 +450,7 @@ function viewToday(){
     <div class="tile"><span class="label">Safe today</span><span class="v">${cnt(safe)}</span><span class="s">${S.budgets.length?`Spent today ${money(spentToday)}`:"Add a budget to see this"}</span></div>
     <div class="tile"><span class="label">${(S.payday||1)===1?"Month ends in":"Payday in"}</span><span class="v num">${daysLeft} day${daysLeft===1?"":"s"}</span><span class="s">${avail>0&&left>0?`${money(left/daysLeft)} a day until then`:"Plan carefully until then"}</span></div>
   </div>
-  ${upcoming.length?`<div class="section rise"><div class="sechead"><h2>Coming up</h2></div><div class="txs">${upcoming.map(({r,d})=>`<div class="tx">${badge(r.note||r.source,"var(--good)")}<div class="what"><div>${esc(r.note||r.source)}</div><div>${fmtDate(d,{weekday:"short",day:"numeric",month:"short"})} · in ${diff(t,d)} day${diff(t,d)===1?"":"s"}</div></div><span class="amt num plus">+${money(r.amount)}</span></div>`).join("")}</div></div>`:""}
+  ${upcoming.length?`<div class="section rise"><div class="sechead"><h2>Coming up</h2></div><div class="txs">${upcoming.map(({r,d})=>{const out=r.kind==="expense";return `<button class="tx" data-edit-rec="${r.id}">${badge(recName(r),recColor(r))}<div class="what"><div>${esc(recName(r))}</div><div>${fmtDate(d,{weekday:"short",day:"numeric",month:"short"})} · in ${diff(t,d)} day${diff(t,d)===1?"":"s"}</div></div><span class="amt num${out?"":" plus"}">${out?"−":"+"}${money(r.amount)}</span></button>`}).join("")}</div></div>`:""}
   ${attention.length?`<div class="section"><div class="sechead"><h2>Needs attention</h2><button class="linkbtn" data-tab-go="budgets">All budgets</button></div><div class="list">${attention.map(([b])=>budgetCard(b)).join("")}</div></div>`:
    S.budgets.length?`<div class="banner rise">All your budgets are on track.</div>`:`<div class="empty rise">No budgets yet.<button class="linkbtn" data-new="budget">Create your first budget</button></div>`}`;
 }
@@ -483,9 +492,9 @@ const sortTx=(a,b)=>a.date<b.date?1:a.date>b.date?-1:0;
 function dayLabel(d){const t=today();return d===t?"Today":d===addDays(t,-1)?"Yesterday":fmtDate(d,{weekday:"short",day:"numeric",month:"short"})}
 function txGroups(list){
   if(!list.length) return `<div class="empty">No expenses yet.<button class="linkbtn" data-new="expense">Add your first expense</button></div>`;
-  const row=x=>{const b=budgetById(x.budgetId);return `<div class="tx">${badge(x.note||b?.name||"Expense",b?b.color:"var(--muted)")}
-    <div class="what"><div>${esc(x.note||b?.name||"Expense")}</div><div>${b?esc(b.name):"No budget"}</div></div>
-    <span class="amt num">−${money(x.amount,true)}</span><button class="del" data-del-tx="${x.id}" aria-label="Delete expense">✕</button></div>`};
+  const row=x=>{const b=budgetById(x.budgetId);return `<button class="tx" data-edit-tx="${x.id}">${badge(x.note||b?.name||"Expense",b?b.color:"var(--muted)")}
+    <div class="what"><div>${esc(x.note||b?.name||"Expense")}</div><div>${b?esc(b.name):"No budget"}${x.recurringId?" · repeats":""}</div></div>
+    <span class="amt num">−${money(x.amount,true)}</span></button>`};
   const days={}; list.forEach(x=>(days[x.date]=days[x.date]||[]).push(x));
   return Object.keys(days).sort().reverse().map(d=>`<div class="group rise"><div class="glabel"><span>${dayLabel(d)}</span><span class="num">${money(days[d].reduce((a,x)=>a+x.amount,0),true)}</span></div><div class="txs">${days[d].map(row).join("")}</div></div>`).join("");
 }
@@ -497,24 +506,28 @@ function viewExpenses(){
   /* compare with the same number of days into last month */
   const prevS=cycleOf(addDays(m.s,-1))[0], prevSoFar=sumOut(prevS,addDays(prevS,diff(m.s,t)));
   const delta=prevSoFar?Math.round((m.out-prevSoFar)/prevSoFar*100):null;
+  const bills=S.recurring.filter(r=>r.kind==="expense");
   return `<div class="pagehead"><h1 class="title">Spending</h1><button class="addbtn" data-new="expense">${I.add}Add expense</button></div>
   ${m.out?`<div class="card rise"><div class="row"><span class="label">${cycleLabel(m.s,m.e)}</span>${delta!==null?`<span class="delta ${delta<=0?"down":"up"}">${delta<=0?"▼":"▲"} ${Math.abs(delta)}% vs last month</span>`:""}</div>
     <div class="chartcard">${donut(parts,m.out,"spent")}<div class="legend">${parts.slice(0,6).map(p=>`<div><i style="background:${p.color}"></i><span>${esc(p.name)}</span><em class="num">${Math.round(p.v/m.out*100)}%</em></div>`).join("")}</div></div></div>`:""}
+  ${bills.length?`<div class="section rise"><div class="sechead"><h2>Repeating bills</h2><span class="label num">${money(bills.filter(r=>r.freq==="monthly").reduce((a,r)=>a+r.amount,0))} a month</span></div><div class="txs">${bills.map(r=>{const nx=nextOccurrence(r);return `<button class="tx" data-edit-rec="${r.id}">${badge(recName(r),recColor(r))}
+    <div class="what"><div>${esc(recName(r))}</div><div>${freqText(r)}${nx?" · next "+fmtDate(nx):""}</div></div><span class="amt num">−${money(r.amount)}</span></button>`}).join("")}</div>
+    <p class="hint">Taken off automatically on each date. Tap one to change or stop it.</p></div>`:""}
   ${txGroups(S.expenses.slice().sort(sortTx))}`;
 }
 function viewIncome(){
   const m=monthTotals(today()), avail=m.inc+m.carried;
   const list=S.incomes.slice().sort(sortTx);
   const months={}; list.forEach(x=>{const k=cycleOf(x.date).join("|");(months[k]=months[k]||[]).push(x)});
-  const row=x=>`<div class="tx">${badge(x.source,"var(--good)")}
+  const row=x=>`<button class="tx" data-edit-in="${x.id}">${badge(x.source,"var(--good)")}
     <div class="what"><div>${esc(x.note||x.source)}</div><div>${esc(x.source)} · ${fmtDate(x.date)}${x.recurringId?" · repeats":""}</div></div>
-    <span class="amt num plus">+${money(x.amount,true)}</span><button class="del" data-del-in="${x.id}" aria-label="Delete income">✕</button></div>`;
+    <span class="amt num plus">+${money(x.amount,true)}</span></button>`;
   const regular=S.recurring.filter(r=>r.kind==="income");
   const left=avail-m.out-m.saved;
   return `<div class="pagehead"><h1 class="title">Income</h1><button class="addbtn" data-new="income">${I.add}Add income</button></div>
   <section class="hero rise"><div class="row"><span class="label">Received</span><span class="label">${cycleLabel(m.s,m.e)}</span></div><div class="big">${cnt(m.inc)}</div>
   <div class="sub">${m.carried?`${m.carried>0?"Plus":"Minus"} ${money(Math.abs(m.carried))} from before. `:""}After spending ${money(m.out)}${m.saved?` and saving ${money(m.saved)}`:""}, ${left>=0?`you have ${money(left)} left.`:`you're ${money(-left)} over.`}</div></section>
-  ${regular.length?`<div class="section rise"><div class="sechead"><h2>Repeating income</h2></div><div class="txs">${regular.map(r=>{const nx=nextOccurrence(r);return `<button class="tx" data-edit-rec="${r.id}" style="width:100%;background:none;border:none;text-align:left;cursor:pointer">${badge(r.source,"var(--good)")}
+  ${regular.length?`<div class="section rise"><div class="sechead"><h2>Repeating income</h2></div><div class="txs">${regular.map(r=>{const nx=nextOccurrence(r);return `<button class="tx" data-edit-rec="${r.id}">${badge(r.source,"var(--good)")}
     <div class="what"><div>${esc(r.note||r.source)}</div><div>${freqText(r)}${nx?" · next "+fmtDate(nx):""}</div></div><span class="amt num plus">+${money(r.amount)}</span></button>`}).join("")}</div>
     <p class="hint">Recorded automatically on each date. Tap one to change or stop it.</p></div>`:""}
   ${list.length?Object.keys(months).sort().reverse().map(k=>`<div class="group rise"><div class="glabel"><span>${cycleLabel(...k.split("|"))}</span><span class="num">${money(months[k].reduce((a,x)=>a+x.amount,0),true)}</span></div><div class="txs">${months[k].map(row).join("")}</div></div>`).join("")
@@ -541,7 +554,11 @@ function countUp(root){
   requestAnimationFrame(step);
 }
 function go(t){tab=t;animateNext=true;try{localStorage.setItem(KEY+":tab",t)}catch(e){}render();window.scrollTo(0,0)}
-function toast(msg){document.querySelectorAll(".toast").forEach(x=>x.remove());const el=document.createElement("div");el.className="toast";el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),1900)}
+function toast(msg,label,fn){document.querySelectorAll(".toast").forEach(x=>x.remove());const el=document.createElement("div");el.className="toast";el.setAttribute("role","status");el.textContent=msg;
+  if(label){const b=document.createElement("button");b.type="button";b.textContent=label;b.onclick=()=>{el.remove();fn()};el.appendChild(b)}
+  document.body.appendChild(el);setTimeout(()=>el.remove(),label?5000:1900)}
+/* Run a change that removes something, then offer Undo for a few seconds */
+function withUndo(msg,change){const snap=JSON.stringify(S);change();closeSheet();touched();toast(msg,"Undo",()=>{S=JSON.parse(snap);fmtCache={};touched();toast("Restored")})}
 function touched(){save();render()}
 
 /* ---------- sheets ---------- */
@@ -557,25 +574,54 @@ function closeSheet(){root.innerHTML=""}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 function armDelete(btn,fn,label){btn.addEventListener("click",()=>{if(btn.classList.contains("armed")){fn()}else{btn.classList.add("armed");btn.textContent=label||"Tap again to delete"}})}
 
-function sheetExpense(){
-  let sel=S.lastBudget&&budgetById(S.lastBudget)?S.lastBudget:(S.budgets[0]?.id||"");
-  openSheet(`<h2>Add expense</h2><form id="f">
-    <div class="field"><label for="e-amt">Amount (${S.currency})</label><input class="amount" id="e-amt" inputmode="decimal" placeholder="0.00" autofocus required></div>
+function sheetExpense(id){
+  const x=id?S.expenses.find(e=>e.id===id):null; if(id&&!x) return;
+  let sel=x?(x.budgetId&&budgetById(x.budgetId)?x.budgetId:""):(S.lastBudget&&budgetById(S.lastBudget)?S.lastBudget:(S.budgets[0]?.id||""));
+  openSheet(`<h2>${x?"Edit expense":"Add expense"}</h2><form id="f">
+    <div class="field"><label for="e-amt">Amount (${S.currency})</label><input class="amount" id="e-amt" inputmode="decimal" placeholder="0.00" value="${x?x.amount:""}" ${x?"":"autofocus"} required></div>
     <div class="field"><span class="flabel">Budget</span><div class="chips" id="e-b">${S.budgets.map(b=>`<button type="button" data-b="${b.id}"><i style="background:${b.color}"></i>${esc(b.name)}</button>`).join("")}<button type="button" data-b=""><i style="background:var(--muted)"></i>No budget</button></div></div>
-    <div class="two"><div class="field"><label for="e-note">What for</label><input id="e-note" placeholder="e.g. Coffee"></div>
-    <div class="field"><label for="e-d">Date</label><input id="e-d" type="date" value="${today()}"></div></div>
+    <div class="two"><div class="field"><label for="e-note">What for</label><input id="e-note" placeholder="e.g. Coffee" value="${x?esc(x.note):""}"></div>
+    <div class="field"><label for="e-d" id="e-dl">Date</label><input id="e-d" type="date" value="${x?x.date:today()}"></div></div>
+    ${x?(x.recurringId?`<p class="hint">Part of a repeating bill. Changes here only affect this one payment.</p>`:""):`<div class="field"><span class="flabel">Repeats</span><div class="seg" id="e-rep">${REPEATS.map(([k,l])=>`<button type="button" data-f="${k}">${l}</button>`).join("")}</div></div><p class="hint" id="e-hint" hidden></p>`}
     <div class="preview" id="e-prev" hidden></div>
-    <div class="actions"><button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">Add expense</button></div></form>`,sh=>{
-    const amt=sh.querySelector("#e-amt"), prev=sh.querySelector("#e-prev");
-    const upd=()=>{sh.querySelectorAll("#e-b button").forEach(x=>x.setAttribute("aria-pressed",x.dataset.b===sel));
-      const b=budgetById(sel);if(!b){prev.hidden=true;return}const st=stats(b),after=st.remaining-num(amt.value);
+    <div class="actions">${x?`<button type="button" class="btn danger" id="del">Delete</button>`:`<button type="button" class="btn ghost" id="cancel">Cancel</button>`}<button class="btn" type="submit">${x?"Save":"Add expense"}</button></div></form>`,sh=>{
+    const amt=sh.querySelector("#e-amt"), prev=sh.querySelector("#e-prev"); let freq="none";
+    const upd=()=>{sh.querySelectorAll("#e-b button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.b===sel));
+      sh.querySelectorAll("#e-rep button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.f===freq));
+      const hint=sh.querySelector("#e-hint"), d=sh.querySelector("#e-d").value||today();
+      if(hint){hint.hidden=freq==="none";hint.textContent=freq==="none"?"":`${freqText({freq,start:d})}. Taken off automatically on each date${d>today()?", starting "+fmtDate(d):""}.`;sh.querySelector("#e-dl").textContent=freq==="none"?"Date":"First payment"}
+      const b=budgetById(sel);if(!b){prev.hidden=true;return}const st=stats(b),after=st.remaining-num(amt.value)+(x&&x.budgetId===sel&&x.date>=st.s&&x.date<=st.e?x.amount:0);
       prev.hidden=false;prev.innerHTML=`<span>After this, <b>${esc(b.name)}</b> has <b class="num" style="color:${after<0?"var(--bad)":"inherit"}">${money(after)}</b> left${st.total>1?` (<span class="num">${money(Math.max(0,after)/st.left)}</span> a day)`:""}.</span>`};
-    sh.querySelectorAll("#e-b button").forEach(x=>x.onclick=()=>{sel=x.dataset.b;upd()});
+    sh.querySelectorAll("#e-b button").forEach(b=>b.onclick=()=>{sel=b.dataset.b;upd()});
+    sh.querySelectorAll("#e-rep button").forEach(b=>b.onclick=()=>{freq=b.dataset.f;upd()});
+    sh.querySelector("#e-d").addEventListener("change",upd);
     amt.addEventListener("input",upd);upd();
-    sh.querySelector("#cancel").onclick=closeSheet;
+    if(x) sh.querySelector("#del").onclick=()=>withUndo("Expense deleted",()=>{S.expenses=S.expenses.filter(e=>e.id!==id)});
+    else sh.querySelector("#cancel").onclick=closeSheet;
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const a=num(amt.value);if(a<=0){amt.focus();return}
-      S.expenses.push({id:uid(),amount:Math.round(a*100)/100,budgetId:sel||null,date:sh.querySelector("#e-d").value||today(),note:sh.querySelector("#e-note").value.trim()});
-      S.lastBudget=sel;closeSheet();touched();toast("Expense added")});
+      const v={amount:Math.round(a*100)/100,budgetId:sel||null,date:sh.querySelector("#e-d").value||today(),note:sh.querySelector("#e-note").value.trim()};
+      if(x){Object.assign(x,v);closeSheet();touched();return toast("Expense saved")}
+      S.lastBudget=sel;
+      if(freq==="none"){S.expenses.push(Object.assign({id:uid()},v));closeSheet();touched();return toast("Expense added")}
+      S.recurring.push({id:uid(),kind:"expense",amount:v.amount,budgetId:v.budgetId,note:v.note,freq,start:v.date,posted:""});postDue();
+      closeSheet();touched();toast(v.date>today()?"Bill scheduled from "+fmtDate(v.date):"Bill added and set to repeat")});
+  });
+}
+
+function sheetIncomeEdit(id){
+  const x=S.incomes.find(i=>i.id===id); if(!x) return;
+  openSheet(`<h2>Edit income</h2><form id="f">
+    <div class="field"><label for="i-amt">Amount (${S.currency})</label><input class="amount" id="i-amt" inputmode="decimal" value="${x.amount}" required></div>
+    <div class="field"><span class="flabel">Source</span><div class="chips" id="i-src">${INCOME_SOURCES.concat(INCOME_SOURCES.includes(x.source)?[]:[x.source]).map(s=>`<button type="button" data-s="${esc(s)}" aria-pressed="${s===x.source}">${esc(s)}</button>`).join("")}</div></div>
+    <div class="two"><div class="field"><label for="i-note">Note</label><input id="i-note" value="${esc(x.note)}"></div>
+    <div class="field"><label for="i-d">Date</label><input id="i-d" type="date" value="${x.date}"></div></div>
+    ${x.recurringId?`<p class="hint">Part of a repeating income. Changes here only affect this one payment.</p>`:""}
+    <div class="actions"><button type="button" class="btn danger" id="del">Delete</button><button class="btn" type="submit">Save</button></div></form>`,sh=>{
+    let src=x.source;
+    sh.querySelectorAll("#i-src button").forEach(b=>b.onclick=()=>{src=b.dataset.s;sh.querySelectorAll("#i-src button").forEach(y=>y.setAttribute("aria-pressed",y===b))});
+    sh.querySelector("#del").onclick=()=>withUndo("Income deleted",()=>{S.incomes=S.incomes.filter(i=>i.id!==id)});
+    sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const a=num(sh.querySelector("#i-amt").value);if(a<=0)return;
+      Object.assign(x,{amount:Math.round(a*100)/100,source:src,note:sh.querySelector("#i-note").value.trim(),date:sh.querySelector("#i-d").value||x.date});closeSheet();touched();toast("Income saved")});
   });
 }
 
@@ -585,7 +631,7 @@ function sheetIncome(){
     <div class="field"><span class="flabel">Source</span><div class="chips" id="i-src">${INCOME_SOURCES.map((s,i)=>`<button type="button" data-s="${s}" aria-pressed="${i===0}">${s}</button>`).join("")}</div></div>
     <div class="two"><div class="field"><label for="i-note">Note</label><input id="i-note" placeholder="e.g. October pay"></div>
     <div class="field"><label for="i-d" id="i-dl">Date</label><input id="i-d" type="date" value="${today()}"></div></div>
-    <div class="field"><span class="flabel">Repeats</span><div class="seg" id="i-rep">${[["none","Once"],["monthly","Monthly"],["fortnightly","2 weeks"],["weekly","Weekly"]].map(([k,l])=>`<button type="button" data-f="${k}">${l}</button>`).join("")}</div></div>
+    <div class="field"><span class="flabel">Repeats</span><div class="seg" id="i-rep">${REPEATS.map(([k,l])=>`<button type="button" data-f="${k}">${l}</button>`).join("")}</div></div>
     <p class="hint" id="i-hint"></p>
     <div class="actions"><button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">Add income</button></div></form>`,sh=>{
     let src=INCOME_SOURCES[0], freq="monthly";
@@ -632,7 +678,7 @@ function sheetBudget(id){
     sh.querySelectorAll("#b-c button").forEach(x=>x.onclick=()=>{color=x.dataset.c;sync()});
     sh.querySelector("#b-s").addEventListener("change",sync);sh.querySelector("#b-d").addEventListener("input",sync);sync();
     sh.querySelector("#cancel").onclick=closeSheet;
-    if(id) armDelete(sh.querySelector("#del"),()=>{S.budgets=S.budgets.filter(x=>x.id!==id);S.expenses.forEach(x=>{if(x.budgetId===id)x.budgetId=null});closeSheet();touched();toast("Budget deleted")});
+    if(id) armDelete(sh.querySelector("#del"),()=>withUndo("Budget deleted",()=>{S.budgets=S.budgets.filter(x=>x.id!==id);S.expenses.forEach(x=>{if(x.budgetId===id)x.budgetId=null})}));
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const lim=num(sh.querySelector("#b-l").value);if(lim<=0){sh.querySelector("#b-l").focus();return}
       const nb=Object.assign(id?b:{id:uid()},{color,name:sh.querySelector("#b-n").value.trim()||"Budget",limit:lim,period,start:sh.querySelector("#b-s").value||today(),days:Math.max(1,Math.round(num(sh.querySelector("#b-d").value))||14)});
       if(!id)S.budgets.push(nb);closeSheet();touched();toast(id?"Budget saved":"Budget created")});
@@ -656,7 +702,7 @@ function sheetGoal(id){
       prev.innerHTML=p.done?"<b>Already reached.</b>":p.reach?`<span>You'd reach it by <b>${monthsLater(p.months)}</b> (${p.months} months).</span><span class="muted">You put in <span class="num">${money(p.dep)}</span>, interest adds <span class="num">${money(p.interest)}</span>.</span>`:`<span>At this rate it takes over 50 years. Try adding more each month.</span>`};
     sh.querySelectorAll("input").forEach(i=>i.addEventListener("input",upd));upd();
     sh.querySelector("#cancel").onclick=closeSheet;
-    if(id) armDelete(sh.querySelector("#del"),()=>{S.goals=S.goals.filter(x=>x.id!==id);closeSheet();touched();toast("Goal deleted")});
+    if(id) armDelete(sh.querySelector("#del"),()=>withUndo("Goal deleted",()=>{S.goals=S.goals.filter(x=>x.id!==id)}));
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const t=num(v("#g-t"));if(t<=0){sh.querySelector("#g-t").focus();return}
       const ng=Object.assign(id?g:{id:uid()},{name:v("#g-n").trim()||"Goal",target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r"))});
       if(!id)S.goals.push(ng);closeSheet();touched();toast(id?"Plan saved":"Goal created")});
@@ -694,12 +740,12 @@ function sheetDeposit(id){
 
 function sheetRecurring(id){
   const r=S.recurring.find(x=>x.id===id); if(!r) return;
-  openSheet(`<h2>${esc(r.note||r.source)}</h2><p class="hint">${freqText(r)}. Payments already recorded stay as they are.</p><form id="f">
+  openSheet(`<h2>${esc(recName(r))}</h2><p class="hint">${freqText(r)}. Payments already recorded stay as they are.</p><form id="f">
     <div class="field"><label for="r-amt">Amount from now on (${S.currency})</label><input class="amount" id="r-amt" inputmode="decimal" value="${r.amount}"></div>
     <div class="field"><label for="r-note">Note</label><input id="r-note" value="${esc(r.note)}"></div>
     <div class="actions"><button type="button" class="btn danger" id="stop">Stop repeating</button><button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">Save</button></div></form>`,sh=>{
     sh.querySelector("#cancel").onclick=closeSheet;
-    armDelete(sh.querySelector("#stop"),()=>{S.recurring=S.recurring.filter(x=>x.id!==id);closeSheet();touched();toast("Stopped repeating")},"Tap again to stop");
+    sh.querySelector("#stop").onclick=()=>withUndo("Stopped repeating",()=>{S.recurring=S.recurring.filter(x=>x.id!==id)});
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const a=num(sh.querySelector("#r-amt").value);if(a<=0)return;
       r.amount=Math.round(a*100)/100;r.note=sh.querySelector("#r-note").value.trim();closeSheet();touched();toast("Saved")});
   });
@@ -711,15 +757,26 @@ function sheetSettings(){
     <div class="field"><label for="s-w">Weeks start on</label><select id="s-w">${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map((d,i)=>`<option value="${i}" ${i==S.weekStart?"selected":""}>${d}</option>`).join("")}</select></div></div>
     <div class="field"><label for="s-p">Your month starts on (payday)</label><select id="s-p">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${i+1==(S.payday||1)?"selected":""}>${i===0?"1st (calendar month)":ordinal(i+1)}</option>`).join("")}</select></div>
     <label style="display:flex;gap:10px;align-items:center;font-weight:600"><input type="checkbox" id="s-carry" ${S.carry!==false?"checked":""}> Carry leftover money into the next month</label>
-    <p class="hint">Your data stays on this device only. Backup and export are coming soon.</p>
+    <div class="field"><span class="flabel">Backup</span><div class="chips"><button type="button" id="bk-dl">Save backup file</button><button type="button" id="bk-cp">Copy backup</button><button type="button" id="bk-in">Restore</button></div>
+    <input type="file" id="bk-file" accept=".json,application/json,text/plain" hidden></div>
+    <div class="preview" id="bk-prev" hidden></div>
+    <p class="hint">Your data stays on this device only. Save a backup now and then, and use Restore on a new phone.</p>
     <div class="actions"><button type="button" class="btn danger" id="wipe">Erase all data</button><button class="btn" type="submit">Done</button></div></form>`,sh=>{
-    armDelete(sh.querySelector("#wipe"),()=>{S=blank();fmtCache={};closeSheet();animateNext=true;touched();toast("All data erased")});
+    armDelete(sh.querySelector("#wipe"),()=>{animateNext=true;withUndo("All data erased",()=>{S=blank();fmtCache={}})});
+    const backup=()=>JSON.stringify({app:"money-buddy",saved:new Date().toISOString(),data:S});
+    sh.querySelector("#bk-dl").onclick=()=>{try{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([backup()],{type:"application/json"}));a.download=`money-buddy-backup-${today()}.json`;document.body.appendChild(a);a.click();a.remove();toast("Backup saved")}catch(e){toast("Couldn't save here. Try Copy backup.")}};
+    sh.querySelector("#bk-cp").onclick=()=>{(navigator.clipboard?navigator.clipboard.writeText(backup()):Promise.reject()).then(()=>toast("Backup copied. Paste it into Notes or an email."),()=>toast("Couldn't copy here. Try Save backup file."))};
+    const file=sh.querySelector("#bk-file"), bp=sh.querySelector("#bk-prev");
+    sh.querySelector("#bk-in").onclick=()=>file.click();
+    file.onchange=()=>{const f=file.files[0];if(!f)return;f.text().then(txt=>{let d;try{d=JSON.parse(txt);d=d&&d.data?d.data:d}catch(e){d=null}
+      if(!d||!Array.isArray(d.budgets)||!Array.isArray(d.expenses)){bp.hidden=false;bp.innerHTML=`<span style="color:var(--bad)">That file isn't a Money Buddy backup.</span>`;return}
+      bp.hidden=false;bp.innerHTML=`<span>Backup with <b>${d.expenses.length}</b> expenses, <b>${(d.incomes||[]).length}</b> incomes and <b>${d.budgets.length}</b> budgets. It replaces everything on this device.</span><button type="button" class="btn" id="bk-go">Restore this backup</button>`;
+      bp.querySelector("#bk-go").onclick=()=>{animateNext=true;withUndo("Backup restored",()=>{S=Object.assign(blank(),d);S.incomes=S.incomes||[];S.recurring=S.recurring||[];S.transfers=S.transfers||[];S.goals=S.goals||[];fmtCache={};postDue()})}})}
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();S.currency=sh.querySelector("#s-c").value;S.weekStart=+sh.querySelector("#s-w").value;const np=+sh.querySelector("#s-p").value;if(np!==S.payday){S.payday=np;S.paydaySet=true}S.carry=sh.querySelector("#s-carry").checked;fmtCache={};closeSheet();touched()});
   });
 }
 
 /* ---------- events ---------- */
-function armRowDelete(t,fn){if(t.classList.contains("armed")){fn()}else{t.classList.add("armed");t.textContent="Delete";setTimeout(()=>{if(t.isConnected){t.classList.remove("armed");t.textContent="✕"}},3000)}}
 document.addEventListener("click",e=>{
   const t=e.target.closest("button"); if(!t) return;
   if(t.dataset.tab) return go(t.dataset.tab);
@@ -735,8 +792,8 @@ document.addEventListener("click",e=>{
   if(t.dataset.editRec) return sheetRecurring(t.dataset.editRec);
   if(t.dataset.editGoal) return sheetGoal(t.dataset.editGoal);
   if(t.dataset.deposit) return sheetDeposit(t.dataset.deposit);
-  if(t.dataset.delIn) return armRowDelete(t,()=>{S.incomes=S.incomes.filter(x=>x.id!==t.dataset.delIn);touched();toast("Income deleted")});
-  if(t.dataset.delTx) return armRowDelete(t,()=>{S.expenses=S.expenses.filter(x=>x.id!==t.dataset.delTx);touched();toast("Expense deleted")});
+  if(t.dataset.editTx) return sheetExpense(t.dataset.editTx);
+  if(t.dataset.editIn) return sheetIncomeEdit(t.dataset.editIn);
 });
 
 if(postDue()) save();
