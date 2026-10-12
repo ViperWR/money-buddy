@@ -137,6 +137,23 @@ button.tx:active{background:var(--sunk)}
 .plus{color:var(--good)}
 
 /* Charts */
+.search{position:relative}
+.search input{padding-left:40px;background:var(--surface);border:1px solid var(--line)}
+.search input:focus{border-color:var(--brand)}
+.search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--muted);pointer-events:none}
+.qsum{font-size:.84rem;font-weight:600;color:var(--muted);padding:2px 4px}
+.trend{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:end;height:132px;margin-top:14px}
+.trend .col{display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;min-width:0}
+.trend .bar{width:100%;max-width:34px;border-radius:9px 9px 4px 4px;background:var(--brand-line);transform-origin:bottom;min-height:3px}
+.trend .now .bar{background:var(--brand)}
+.trend .v{font-size:.68rem;font-weight:700;color:var(--muted);white-space:nowrap}
+.trend .now .v{color:var(--ink)}
+.trend .m{font-size:.74rem;font-weight:700;color:var(--muted)}
+.trend .now .m{color:var(--ink)}
+.trend .avg{grid-column:1/-1}
+.anim .trend .bar{animation:growy .8s var(--ease) backwards}
+.anim .trend .col:nth-child(2) .bar{animation-delay:.05s}.anim .trend .col:nth-child(3) .bar{animation-delay:.1s}.anim .trend .col:nth-child(4) .bar{animation-delay:.15s}.anim .trend .col:nth-child(5) .bar{animation-delay:.2s}.anim .trend .col:nth-child(6) .bar{animation-delay:.25s}
+@keyframes growy{from{transform:scaleY(0)}}
 .chartcard{display:grid;grid-template-columns:140px 1fr;gap:16px;align-items:center}
 .donut{width:140px;height:140px;position:relative}
 .donut svg{width:100%;height:100%;transform:rotate(-90deg)}
@@ -507,14 +524,31 @@ function viewExpenses(){
   const prevS=cycleOf(addDays(m.s,-1))[0], prevSoFar=sumOut(prevS,addDays(prevS,diff(m.s,t)));
   const delta=prevSoFar?Math.round((m.out-prevSoFar)/prevSoFar*100):null;
   const bills=S.recurring.filter(r=>r.kind==="expense");
+  /* last 6 pay-months, oldest first */
+  const months=[]; let ms=m.s; for(let i=0;i<6;i++){const [s,e]=cycleOf(ms);months.unshift({s,e,v:sumOut(s,e)});ms=addDays(s,-1)}
+  const past=months.slice(0,5).filter(x=>x.v>0), avg=past.length?past.reduce((a,x)=>a+x.v,0)/past.length:0, top=Math.max(...months.map(x=>x.v),1);
+  const short=v=>v>=10000?money(Math.round(v/1000))+"k":money(Math.round(v));
+  const trend=past.length?`<div class="card rise"><div class="row"><span class="label">Last 6 months</span><span class="label">Avg ${money(avg)}</span></div>
+    <div class="trend" role="img" aria-label="Spending per month">${months.map((x,i)=>`<div class="col${i===5?" now":""}"><span class="v num">${x.v?short(x.v):""}</span><div class="bar" style="height:${Math.max(2,x.v/top*100*0.72)}%"></div><span class="m">${fmtDate(addDays(x.s,14),{month:"short"})}</span></div>`).join("")}</div></div>`:"";
   return `<div class="pagehead"><h1 class="title">Spending</h1><button class="addbtn" data-new="expense">${I.add}Add expense</button></div>
   ${m.out?`<div class="card rise"><div class="row"><span class="label">${cycleLabel(m.s,m.e)}</span>${delta!==null?`<span class="delta ${delta<=0?"down":"up"}">${delta<=0?"▼":"▲"} ${Math.abs(delta)}% vs last month</span>`:""}</div>
     <div class="chartcard">${donut(parts,m.out,"spent")}<div class="legend">${parts.slice(0,6).map(p=>`<div><i style="background:${p.color}"></i><span>${esc(p.name)}</span><em class="num">${Math.round(p.v/m.out*100)}%</em></div>`).join("")}</div></div></div>`:""}
   ${bills.length?`<div class="section rise"><div class="sechead"><h2>Repeating bills</h2><span class="label num">${money(bills.filter(r=>r.freq==="monthly").reduce((a,r)=>a+r.amount,0))} a month</span></div><div class="txs">${bills.map(r=>{const nx=nextOccurrence(r);return `<button class="tx" data-edit-rec="${r.id}">${badge(recName(r),recColor(r))}
     <div class="what"><div>${esc(recName(r))}</div><div>${freqText(r)}${nx?" · next "+fmtDate(nx):""}</div></div><span class="amt num">−${money(r.amount)}</span></button>`}).join("")}</div>
     <p class="hint">Taken off automatically on each date. Tap one to change or stop it.</p></div>`:""}
-  ${txGroups(S.expenses.slice().sort(sortTx))}`;
+  ${trend}
+  ${S.expenses.length>3?`<label class="search rise"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search expenses" aria-label="Search expenses" value="${esc(query)}" autocomplete="off"></label>`:""}
+  <div id="txlist">${txList()}</div>`;
 }
+let query="";
+function txList(){
+  const q=query.trim().toLowerCase(); let list=S.expenses.slice().sort(sortTx);
+  if(!q) return txGroups(list);
+  list=list.filter(x=>{const b=budgetById(x.budgetId);return (x.note||"").toLowerCase().includes(q)||(b&&b.name.toLowerCase().includes(q))||String(x.amount).startsWith(q.replace(/[^0-9.]/g,"")||"~")});
+  if(!list.length) return `<div class="empty">Nothing matches "${esc(query.trim())}".</div>`;
+  return `<div class="qsum">${list.length} found · ${money(list.reduce((a,x)=>a+x.amount,0),true)} in total</div>`+txGroups(list);
+}
+document.addEventListener("input",e=>{if(e.target.id==="q"){query=e.target.value;document.getElementById("txlist").innerHTML=txList()}});
 function viewIncome(){
   const m=monthTotals(today()), avail=m.inc+m.carried;
   const list=S.incomes.slice().sort(sortTx);
@@ -757,7 +791,7 @@ function sheetSettings(){
     <div class="field"><label for="s-w">Weeks start on</label><select id="s-w">${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map((d,i)=>`<option value="${i}" ${i==S.weekStart?"selected":""}>${d}</option>`).join("")}</select></div></div>
     <div class="field"><label for="s-p">Your month starts on (payday)</label><select id="s-p">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${i+1==(S.payday||1)?"selected":""}>${i===0?"1st (calendar month)":ordinal(i+1)}</option>`).join("")}</select></div>
     <label style="display:flex;gap:10px;align-items:center;font-weight:600"><input type="checkbox" id="s-carry" ${S.carry!==false?"checked":""}> Carry leftover money into the next month</label>
-    <div class="field"><span class="flabel">Backup</span><div class="chips"><button type="button" id="bk-dl">Save backup file</button><button type="button" id="bk-cp">Copy backup</button><button type="button" id="bk-in">Restore</button></div>
+    <div class="field"><span class="flabel">Backup</span><div class="chips"><button type="button" id="bk-dl">Save backup file</button><button type="button" id="bk-cp">Copy backup</button><button type="button" id="bk-in">Restore</button><button type="button" id="bk-csv">Spreadsheet (CSV)</button></div>
     <input type="file" id="bk-file" accept=".json,application/json,text/plain" hidden></div>
     <div class="preview" id="bk-prev" hidden></div>
     <p class="hint">Your data stays on this device only. Save a backup now and then, and use Restore on a new phone.</p>
@@ -765,6 +799,13 @@ function sheetSettings(){
     armDelete(sh.querySelector("#wipe"),()=>{animateNext=true;withUndo("All data erased",()=>{S=blank();fmtCache={}})});
     const backup=()=>JSON.stringify({app:"money-buddy",saved:new Date().toISOString(),data:S});
     sh.querySelector("#bk-dl").onclick=()=>{try{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([backup()],{type:"application/json"}));a.download=`money-buddy-backup-${today()}.json`;document.body.appendChild(a);a.click();a.remove();toast("Backup saved")}catch(e){toast("Couldn't save here. Try Copy backup.")}};
+    sh.querySelector("#bk-csv").onclick=()=>{const q=v=>{v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+      const rows=[["Date","Type","Amount","Budget or source","Note"]]
+        .concat(S.expenses.map(x=>[x.date,"Expense",-x.amount,budgetById(x.budgetId)?.name||"",x.note]))
+        .concat(S.incomes.map(x=>[x.date,"Income",x.amount,x.source,x.note]))
+        .concat(S.transfers.map(x=>[x.date,"Savings",-x.amount,S.goals.find(g=>g.id===x.goalId)?.name||"",""]))
+        .sort((a,b)=>a[0]===b[0]?0:a[0]==="Date"?-1:b[0]==="Date"?1:a[0]<b[0]?1:-1);
+      try{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(q).join(",")).join("\n")],{type:"text/csv"}));a.download=`money-buddy-${today()}.csv`;document.body.appendChild(a);a.click();a.remove();toast("Spreadsheet saved")}catch(e){toast("Couldn't save here")}};
     sh.querySelector("#bk-cp").onclick=()=>{(navigator.clipboard?navigator.clipboard.writeText(backup()):Promise.reject()).then(()=>toast("Backup copied. Paste it into Notes or an email."),()=>toast("Couldn't copy here. Try Save backup file."))};
     const file=sh.querySelector("#bk-file"), bp=sh.querySelector("#bk-prev");
     sh.querySelector("#bk-in").onclick=()=>file.click();
