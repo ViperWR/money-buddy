@@ -360,12 +360,17 @@ const badge=(name,color)=>`<span class="badge" style="background:color-mix(in sr
 
 function stats(b){
   const t=today(); const [s,e]=periodOf(b,t,S.weekStart);
-  const spent=S.expenses.filter(x=>x.budgetId===b.id&&x.date>=s&&x.date<=e).reduce((a,x)=>a+x.amount,0);
+  const mine=S.expenses.filter(x=>x.budgetId===b.id), spentIn=(a,z)=>mine.reduce((n,x)=>x.date>=a&&x.date<=z?n+x.amount:n,0);
+  const spent=spentIn(s,e);
+  /* Rollover: every finished period since it was switched on adds what was left (or takes what was overspent) */
+  let carried=0;
+  if(b.rollover&&b.rollFrom){let [ps,pe]=periodOf(b,b.rollFrom,S.weekStart);for(let i=0;ps<s&&i<1000;i++){carried+=b.limit-spentIn(ps,pe);[ps,pe]=periodOf(b,addDays(pe,1),S.weekStart)}}
+  const limit=Math.max(0,b.limit+carried);
   const total=diff(s,e)+1, left=diff(t,e)+1, elapsed=total-left+1;
-  const remaining=b.limit-spent, perDay=Math.max(0,remaining)/left;
-  const pace=b.limit*elapsed/total;
-  const status=spent>b.limit?"bad":(spent>pace*1.1&&total>1?"warn":"good");
-  return {s,e,spent,remaining,perDay,left,total,pace,status};
+  const remaining=limit-spent, perDay=Math.max(0,remaining)/left;
+  const pace=limit*elapsed/total;
+  const status=spent>limit?"bad":(spent>pace*1.1&&total>1?"warn":"good");
+  return {s,e,spent,remaining,perDay,left,total,pace,status,limit,carried};
 }
 
 /* The "money month" runs from payday to the day before the next payday (payday 1 = calendar month). */
@@ -426,12 +431,13 @@ if(!(tab in VIEWS)) tab="today";
 function greeting(){const h=new Date().getHours();return h<12?"Good morning":h<18?"Good afternoon":"Good evening"}
 
 function budgetCard(b){
-  const st=stats(b), pct=Math.min(100,st.spent/b.limit*100||0), pace=Math.min(100,st.pace/b.limit*100);
+  const st=stats(b), pct=Math.min(100,st.spent/st.limit*100||0), pace=Math.min(100,st.pace/st.limit*100||0);
   const label={good:"On track",warn:"Spending fast",bad:"Over budget"}[st.status];
   const range=b.period==="daily"?"Resets tonight":`${fmtDate(st.s)} – ${fmtDate(st.e)}`;
   return `<button class="card rise" data-edit-budget="${b.id}">
     <div class="row"><div class="who">${badge(b.name,b.color)}<div><div class="name">${esc(b.name)}</div><div class="sm">${range}</div></div></div><span class="pill ${st.status}">${label}</span></div>
-    <div class="row" style="align-items:baseline"><span class="amount-lg num" style="color:${st.remaining<0?"var(--bad)":"inherit"}">${money(st.remaining)}</span><span class="muted" style="font-size:.84rem;font-weight:600">left of ${money(b.limit)}</span></div>
+    <div class="row" style="align-items:baseline"><span class="amount-lg num" style="color:${st.remaining<0?"var(--bad)":"inherit"}">${money(st.remaining)}</span><span class="muted" style="font-size:.84rem;font-weight:600">left of ${money(st.limit)}</span></div>
+    ${b.rollover&&st.carried?`<div class="sm muted" style="font-size:.78rem;font-weight:600;margin-top:-4px">${st.carried>0?`Includes ${money(st.carried)} carried over`:`${money(-st.carried)} overspent earlier was taken off`}</div>`:""}
     <div class="bar" role="img" aria-label="${Math.round(pct)}% spent"><div class="fill ${st.status==="good"?"":st.status}" style="width:${pct}%;${st.status==="good"?`background:${b.color}`:""}"></div>${st.total>1?`<div class="pace" style="left:calc(${pace}% - 1.5px)" title="Even-pace marker"></div>`:""}</div>
     <div class="meta"><span>${st.total>1?`${st.left} day${st.left>1?"s":""} left`:"Today only"}</span><span>${st.total>1?`<b class="num">${money(st.perDay)}</b> a day`:""}</span></div>
   </button>`;
@@ -474,7 +480,7 @@ function viewToday(){
 
 function viewBudgets(){
   const rows=S.budgets.map(b=>[b,stats(b)]);
-  const lim=rows.reduce((a,[b])=>a+b.limit,0), spent=rows.reduce((a,[,s])=>a+s.spent,0);
+  const lim=rows.reduce((a,[,s])=>a+s.limit,0), spent=rows.reduce((a,[,s])=>a+s.spent,0);
   return `<div class="pagehead"><h1 class="title">Budgets</h1><button class="addbtn" data-new="budget">${I.add}New budget</button></div>
   ${S.budgets.length?`<div class="tiles rise"><div class="tile"><span class="label">Spent this period</span><span class="v">${cnt(spent)}</span><span class="s">of ${money(lim)} across ${S.budgets.length} budgets</span></div>
     <div class="tile"><span class="label">On track</span><span class="v num">${rows.filter(([,s])=>s.status==="good").length} / ${rows.length}</span><span class="s">${rows.some(([,s])=>s.status==="bad")?"Some are over":"None are over"}</span></div></div>
@@ -696,6 +702,7 @@ function sheetBudget(id){
     <div class="two" id="b-extra"><div class="field" id="b-startf"><label for="b-s" id="b-sl">Starts on</label><input id="b-s" type="date" value="${b.start||today()}"></div>
     <div class="field" id="b-daysf"><label for="b-d">Every how many days</label><input id="b-d" inputmode="numeric" class="num" value="${b.days||14}"></div></div>
     <div class="field"><span class="flabel">Colour</span><div class="chips" id="b-c">${COLORS.map(c=>`<button type="button" data-c="${c}" aria-label="Colour" style="padding:8px"><i style="background:${c};width:16px;height:16px;border-radius:5px"></i></button>`).join("")}</div></div>
+    <label style="display:flex;gap:10px;align-items:center;font-weight:600"><input type="checkbox" id="b-roll" ${b.rollover?"checked":""}> Carry leftover into the next period</label>
     <p class="hint" id="b-hint"></p>
     <div class="actions">${id?`<button type="button" class="btn danger" id="del">Delete</button>`:""}<button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">${id?"Save":"Create budget"}</button></div></form>`,sh=>{
     let period=b.period, color=b.color;
@@ -714,7 +721,8 @@ function sheetBudget(id){
     sh.querySelector("#cancel").onclick=closeSheet;
     if(id) armDelete(sh.querySelector("#del"),()=>withUndo("Budget deleted",()=>{S.budgets=S.budgets.filter(x=>x.id!==id);S.expenses.forEach(x=>{if(x.budgetId===id)x.budgetId=null})}));
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const lim=num(sh.querySelector("#b-l").value);if(lim<=0){sh.querySelector("#b-l").focus();return}
-      const nb=Object.assign(id?b:{id:uid()},{color,name:sh.querySelector("#b-n").value.trim()||"Budget",limit:lim,period,start:sh.querySelector("#b-s").value||today(),days:Math.max(1,Math.round(num(sh.querySelector("#b-d").value))||14)});
+      const roll=sh.querySelector("#b-roll").checked;
+      const nb=Object.assign(id?b:{id:uid()},{rollover:roll,rollFrom:roll?(b.rollover&&b.rollFrom?b.rollFrom:today()):"",color,name:sh.querySelector("#b-n").value.trim()||"Budget",limit:lim,period,start:sh.querySelector("#b-s").value||today(),days:Math.max(1,Math.round(num(sh.querySelector("#b-d").value))||14)});
       if(!id)S.budgets.push(nb);closeSheet();touched();toast(id?"Budget saved":"Budget created")});
   });
 }
@@ -785,6 +793,24 @@ function sheetRecurring(id){
   });
 }
 
+function sheetSetup(){
+  openSheet(`<h2>Let's set you up</h2><p class="hint">Three quick things. You can change any of them later in Settings.</p><form id="f">
+    <div class="two"><div class="field"><label for="o-c">1. Currency</label><select id="o-c">${CURRENCIES.concat(CURRENCIES.includes(S.currency)?[]:[S.currency]).map(c=>`<option ${c===S.currency?"selected":""}>${c}</option>`).join("")}</select></div>
+    <div class="field"><label for="o-p">2. Payday</label><select id="o-p">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${i===24?"selected":""}>${ordinal(i+1)}</option>`).join("")}</select></div></div>
+    <div class="field"><label for="o-i">Monthly pay (optional)</label><input id="o-i" class="num" inputmode="decimal" placeholder="Recorded on payday each month"></div>
+    <div class="two"><div class="field"><label for="o-bn">3. First budget</label><input id="o-bn" value="Groceries"></div>
+    <div class="field"><label for="o-bl">Monthly limit</label><input id="o-bl" class="num" inputmode="decimal" placeholder="0"></div></div>
+    <div class="actions"><button type="button" class="btn ghost" id="cancel">Not now</button><button class="btn" type="submit">Start</button></div></form>`,sh=>{
+    sh.querySelector("#cancel").onclick=closeSheet;
+    sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const v=k=>sh.querySelector(k).value;
+      S=blank();S.currency=v("#o-c");S.payday=+v("#o-p");S.paydaySet=true;fmtCache={};
+      const start=cycleOf(today())[0], pay=num(v("#o-i")), lim=num(v("#o-bl"));
+      if(pay>0){S.recurring.push({id:uid(),kind:"income",source:"Salary",note:"",amount:Math.round(pay*100)/100,freq:"monthly",start,posted:""});postDue()}
+      if(lim>0) S.budgets.push({id:uid(),name:v("#o-bn").trim()||"Budget",limit:lim,period:"monthly",start,days:14,color:COLORS[0]});
+      closeSheet();animateNext=true;tab="today";touched();toast("You're all set")});
+  });
+}
+
 function sheetSettings(){
   openSheet(`<h2>Settings</h2><form id="f">
     <div class="two"><div class="field"><label for="s-c">Currency</label><select id="s-c">${CURRENCIES.concat(CURRENCIES.includes(S.currency)?[]:[S.currency]).map(c=>`<option ${c===S.currency?"selected":""}>${c}</option>`).join("")}</select></div>
@@ -823,7 +849,7 @@ document.addEventListener("click",e=>{
   if(t.dataset.tab) return go(t.dataset.tab);
   if(t.dataset.tabGo) return go(t.dataset.tabGo);
   if(t.id==="settingsBtn") return sheetSettings();
-  if(t.id==="fresh"){S=blank();animateNext=true;touched();return toast("Example data cleared")}
+  if(t.id==="fresh") return sheetSetup();
   if(t.dataset.new==="expense") return sheetExpense();
   if(t.dataset.new==="income") return sheetIncome();
   if(t.dataset.new==="save") return S.goals.length?sheetDeposit(S.goals[0].id):sheetGoal();
