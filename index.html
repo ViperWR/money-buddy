@@ -394,6 +394,11 @@ function project(g){
   while(bal<g.target&&m<600){bal=bal*(1+r)+num(g.monthly);dep+=num(g.monthly);m++;pts.push(bal)}
   return {months:m,pts,interest:bal-num(g.saved)-dep,dep,done:false,reach:bal>=g.target};
 }
+/* Whole months from now until a date (at least 1) */
+function monthsUntil(d){const a=new Date(),b=parse(d);return Math.max(1,(b.getFullYear()-a.getFullYear())*12+b.getMonth()-a.getMonth())}
+/* Monthly amount needed to grow `saved` to `target` in n months at `rate`% a year, compounding monthly */
+function needed(g,n){const r=num(g.rate)/100/12, gr=Math.pow(1+r,n), rest=num(g.target)-num(g.saved)*gr;
+  if(rest<=0) return 0; return r?rest*r/(gr-1):rest/n}
 function monthsLater(m){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+m);return d.toLocaleDateString(undefined,{month:"short",year:"numeric"})}
 
 /* ---------- charts ---------- */
@@ -491,12 +496,15 @@ function viewBudgets(){
 
 function goalCard(g,p){
   const pct=g.target?num(g.saved)/g.target*100:0;
-  const when=p.done?"Goal reached":p.reach?`Done by ${monthsLater(p.months)}`:"Add more each month";
+  let when=p.done?"Goal reached":p.reach?`Done by ${monthsLater(p.months)}`:"Add more each month", behind=false;
+  if(g.by&&!p.done){const n=monthsUntil(g.by), need=needed(g,n);
+    if(p.reach&&p.months<=n) when=`On track for ${fmtDate(g.by,{month:"short",year:"numeric"})}`;
+    else {behind=true;when=`Needs ${money(Math.ceil(need))}/month for ${fmtDate(g.by,{month:"short",year:"numeric"})}`}}
   return `<div class="card rise">
     <div class="goalhead">${ring(Math.min(100,pct))}<div style="min-width:0;flex:1"><div class="name">${esc(g.name)}</div>
       <div class="amount-lg num" style="margin-top:2px">${money(num(g.saved))} <span class="muted" style="font-size:.85rem;font-weight:600">of ${money(g.target)}</span></div></div></div>
     ${spark(g,p)}
-    <div class="row" style="flex-wrap:wrap"><span class="chip">${when}</span><span class="muted" style="font-size:.8rem;font-weight:600">${num(g.monthly)?`${money(num(g.monthly))}/month`:""}${num(g.rate)?` · ${num(g.rate)}% · +${money(p.interest)} interest`:""}</span></div>
+    <div class="row" style="flex-wrap:wrap"><span class="chip"${behind?` style="background:var(--warn-soft);color:var(--warn)"`:""}>${when}</span><span class="muted" style="font-size:.8rem;font-weight:600">${num(g.monthly)?`${money(num(g.monthly))}/month`:""}${num(g.rate)?` · ${num(g.rate)}% · +${money(p.interest)} interest`:""}</span></div>
     <div class="actions"><button class="btn" data-deposit="${g.id}" style="padding:12px">Add money</button><button class="btn ghost" data-edit-goal="${g.id}" style="padding:12px">Edit plan</button></div>
   </div>`;
 }
@@ -728,25 +736,30 @@ function sheetBudget(id){
 }
 
 function sheetGoal(id){
-  const g=id?S.goals.find(x=>x.id===id):{name:"",target:"",saved:0,monthly:"",rate:""};
+  const g=id?S.goals.find(x=>x.id===id):{name:"",target:"",saved:0,monthly:"",rate:"",by:""};
   openSheet(`<h2>${id?"Edit savings plan":"New savings goal"}</h2><form id="f">
     <div class="field"><label for="g-n">Goal</label><input id="g-n" value="${esc(g.name)}" placeholder="e.g. New car deposit" required ${id?"":"autofocus"}></div>
     <div class="two"><div class="field"><label for="g-t">Target</label><input id="g-t" class="num" inputmode="decimal" value="${g.target}" required></div>
     <div class="field"><label for="g-s">Already saved</label><input id="g-s" class="num" inputmode="decimal" value="${g.saved}"></div></div>
     <div class="two"><div class="field"><label for="g-m">Add each month</label><input id="g-m" class="num" inputmode="decimal" value="${g.monthly}"></div>
     <div class="field"><label for="g-r">Interest, % a year</label><input id="g-r" class="num" inputmode="decimal" value="${g.rate}" placeholder="0"></div></div>
+    <div class="field"><label for="g-by">Reach it by (optional)</label><input id="g-by" type="date" value="${g.by||""}" min="${today()}"></div>
     <p class="hint">"Already saved" is money you set aside before, so it isn't taken from this month. Use "Add money" on the goal for new deposits.</p>
     <div class="preview" id="g-prev"></div>
     <div class="actions">${id?`<button type="button" class="btn danger" id="del">Delete</button>`:""}<button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">${id?"Save":"Create goal"}</button></div></form>`,sh=>{
     const v=k=>sh.querySelector(k).value;
     const upd=()=>{const t=num(v("#g-t"));const prev=sh.querySelector("#g-prev");if(t<=0){prev.innerHTML=`<span class="muted">Enter a target to see your goal date.</span>`;return}
-      const p=project({target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r"))});
-      prev.innerHTML=p.done?"<b>Already reached.</b>":p.reach?`<span>You'd reach it by <b>${monthsLater(p.months)}</b> (${p.months} months).</span><span class="muted">You put in <span class="num">${money(p.dep)}</span>, interest adds <span class="num">${money(p.interest)}</span>.</span>`:`<span>At this rate it takes over 50 years. Try adding more each month.</span>`};
-    sh.querySelectorAll("input").forEach(i=>i.addEventListener("input",upd));upd();
+      const gg={target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r"))}, p=project(gg), by=v("#g-by");
+      let html=p.done?"<b>Already reached.</b>":p.reach?`<span>You'd reach it by <b>${monthsLater(p.months)}</b> (${p.months} months).</span><span class="muted">You put in <span class="num">${money(p.dep)}</span>, interest adds <span class="num">${money(p.interest)}</span>.</span>`:`<span>${gg.monthly?"At this rate it takes over 50 years. Try adding more each month.":"Add an amount each month, or pick a date to see what you need."}</span>`;
+      if(by&&!p.done){const n=monthsUntil(by), need=Math.ceil(needed(gg,n));
+        html+=`<span>To reach it by <b>${fmtDate(by,{month:"short",year:"numeric"})}</b> you need <b class="num">${money(need)}</b> a month.${need!==gg.monthly?` <button type="button" class="linkbtn" id="g-use" style="display:inline;padding:0">Use this</button>`:""}</span>`}
+      prev.innerHTML=html;
+      const use=prev.querySelector("#g-use"); if(use) use.onclick=()=>{sh.querySelector("#g-m").value=Math.ceil(needed(gg,monthsUntil(by)));upd()}};
+    sh.querySelectorAll("input").forEach(i=>{i.addEventListener("input",upd);i.addEventListener("change",upd)});upd();
     sh.querySelector("#cancel").onclick=closeSheet;
     if(id) armDelete(sh.querySelector("#del"),()=>withUndo("Goal deleted",()=>{S.goals=S.goals.filter(x=>x.id!==id)}));
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const t=num(v("#g-t"));if(t<=0){sh.querySelector("#g-t").focus();return}
-      const ng=Object.assign(id?g:{id:uid()},{name:v("#g-n").trim()||"Goal",target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r"))});
+      const ng=Object.assign(id?g:{id:uid()},{name:v("#g-n").trim()||"Goal",target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r")),by:v("#g-by")});
       if(!id)S.goals.push(ng);closeSheet();touched();toast(id?"Plan saved":"Goal created")});
   });
 }
