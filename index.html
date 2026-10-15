@@ -19,10 +19,10 @@
 <style>
 /* Layout: phone-first single column. A deep-green balance card leads, white cards follow, a calm tab bar sits at the bottom. */
 :root{
-  --bg:#f2f6f3; --surface:#ffffff; --sunk:#e9efeb; --ink:#0d1f17; --ink-2:#2c4137; --muted:#64776d; --line:#dfe8e2;
+  --bg:#f2f6f3; --surface:#ffffff; --sunk:#e9efeb; --ink:#0d1f17; --ink-2:#2c4137; --muted:#58695f; --line:#dfe8e2;
   --brand:#0f6b4c; --brand-ink:#ffffff; --brand-soft:#e1f3e9; --brand-line:#bfe4cf;
   --hero-a:#0b3f2f; --hero-b:#13805a; --hero-ink:#ffffff; --hero-dim:rgba(255,255,255,.72); --hero-track:rgba(255,255,255,.18); --hero-fill:#9ff0c6;
-  --good:#11895a; --warn:#b8730b; --bad:#c43d36; --warn-soft:#fbf0dc; --bad-soft:#fbe6e4;
+  --good:#0b6e47; --warn:#8f5a05; --bad:#b3342e; --warn-soft:#fbf0dc; --bad-soft:#fbe6e4;
   --shadow:0 1px 2px rgba(13,31,23,.05),0 10px 30px -18px rgba(13,31,23,.25);
   --font:"Manrope",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --r-lg:24px; --r:18px; --r-sm:12px;
@@ -154,6 +154,11 @@ button.tx:active{background:var(--sunk)}
 .anim .trend .bar{animation:growy .8s var(--ease) backwards}
 .anim .trend .col:nth-child(2) .bar{animation-delay:.05s}.anim .trend .col:nth-child(3) .bar{animation-delay:.1s}.anim .trend .col:nth-child(4) .bar{animation-delay:.15s}.anim .trend .col:nth-child(5) .bar{animation-delay:.2s}.anim .trend .col:nth-child(6) .bar{animation-delay:.25s}
 @keyframes growy{from{transform:scaleY(0)}}
+.cmp{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.cmprow .row{margin-bottom:6px;font-size:.9rem}
+.cmprow .nm{display:flex;align-items:center;gap:8px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmprow .nm i{width:10px;height:10px;border-radius:3px;flex:none}
+.cmprow .delta{padding:2px 7px;font-size:.7rem;margin-left:4px}
 .chartcard{display:grid;grid-template-columns:140px 1fr;gap:16px;align-items:center}
 .donut{width:140px;height:140px;position:relative}
 .donut svg{width:100%;height:100%;transform:rotate(-90deg)}
@@ -422,7 +427,7 @@ function ring(pct,color){
 function donut(parts,total,label){
   const r=52, C=2*Math.PI*r, gap=parts.length>1?2.5:0; let off=0;
   const segs=parts.map(pt=>{const len=Math.max(0,pt.v/total*C-gap);const s=`<circle class="seg-arc" cx="70" cy="70" r="${r}" fill="none" stroke="${pt.color}" stroke-width="16" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" style="--c:${C.toFixed(2)}"/>`;off+=pt.v/total*C;return s}).join("");
-  return `<div class="donut"><svg viewBox="0 0 140 140"><circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="16"/>${segs}</svg>
+  return `<div class="donut" role="img" aria-label="${esc(parts.map(p=>p.name+" "+Math.round(p.v/total*100)+"%").join(", "))}"><svg viewBox="0 0 140 140" aria-hidden="true"><circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="16"/>${segs}</svg>
     <div class="ctr"><b class="num">${money(total)}</b><span>${label}</span></div></div>`;
 }
 
@@ -538,6 +543,16 @@ function viewExpenses(){
   const prevS=cycleOf(addDays(m.s,-1))[0], prevSoFar=sumOut(prevS,addDays(prevS,diff(m.s,t)));
   const delta=prevSoFar?Math.round((m.out-prevSoFar)/prevSoFar*100):null;
   const bills=S.recurring.filter(r=>r.kind==="expense");
+  /* each budget this pay-month vs the same days last pay-month */
+  const prevE=addDays(prevS,diff(m.s,t)), prevBy={};
+  S.expenses.forEach(x=>{if(x.date>=prevS&&x.date<=prevE){const k=x.budgetId&&budgetById(x.budgetId)?x.budgetId:"_";prevBy[k]=(prevBy[k]||0)+x.amount}});
+  const cmpKeys=[...new Set(Object.keys(by).concat(Object.keys(prevBy)))].map(k=>({k,now:by[k]||0,was:prevBy[k]||0})).sort((a,b)=>b.now-a.now);
+  const cmpTop=Math.max(1,...cmpKeys.map(x=>Math.max(x.now,x.was)));
+  const compare=Object.keys(prevBy).length&&cmpKeys.length?`<div class="card rise"><div class="row"><span class="label">By budget</span><span class="label">vs same point last month</span></div>
+    <div class="cmp">${cmpKeys.slice(0,8).map(({k,now,was})=>{const b=budgetById(k),d=was?Math.round((now-was)/was*100):null;
+      return `<div class="cmprow"><div class="row"><span class="nm"><i style="background:${b?b.color:"#9aa9a1"}"></i>${esc(b?b.name:"No budget")}</span><span class="num"><b>${money(now)}</b>${d===null?` <span class="delta up">new</span>`:d===0?"":` <span class="delta ${d<0?"down":"up"}">${d<0?"▼":"▲"} ${Math.abs(d)}%</span>`}</span></div>
+      <div class="bar" role="img" aria-label="${esc((b?b.name:"No budget")+": "+money(now)+" this month, "+money(was)+" by now last month")}"><div class="fill" style="width:${now/cmpTop*100}%;background:${b?b.color:"#9aa9a1"}"></div><div class="pace" style="left:calc(${Math.min(100,was/cmpTop*100)}% - 1.5px)"></div></div></div>`}).join("")}</div>
+    <p class="hint" style="margin-top:10px">The dark mark is where you were by this day last month.</p></div>`:"";
   /* last 6 pay-months, oldest first */
   const months=[]; let ms=m.s; for(let i=0;i<6;i++){const [s,e]=cycleOf(ms);months.unshift({s,e,v:sumOut(s,e)});ms=addDays(s,-1)}
   const past=months.slice(0,5).filter(x=>x.v>0), avg=past.length?past.reduce((a,x)=>a+x.v,0)/past.length:0, top=Math.max(...months.map(x=>x.v),1);
@@ -550,6 +565,7 @@ function viewExpenses(){
   ${bills.length?`<div class="section rise"><div class="sechead"><h2>Repeating bills</h2><span class="label num">${money(bills.filter(r=>r.freq==="monthly").reduce((a,r)=>a+r.amount,0))} a month</span></div><div class="txs">${bills.map(r=>{const nx=nextOccurrence(r);return `<button class="tx" data-edit-rec="${r.id}">${badge(recName(r),recColor(r))}
     <div class="what"><div>${esc(recName(r))}</div><div>${freqText(r)}${nx?" · next "+fmtDate(nx):""}</div></div><span class="amt num">−${money(r.amount)}</span></button>`}).join("")}</div>
     <p class="hint">Taken off automatically on each date. Tap one to change or stop it.</p></div>`:""}
+  ${compare}
   ${trend}
   ${S.expenses.length>3?`<label class="search rise"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search expenses" aria-label="Search expenses" value="${esc(query)}" autocomplete="off"></label>`:""}
   <div id="txlist">${txList()}</div>`;
@@ -611,14 +627,21 @@ function touched(){save();render()}
 
 /* ---------- sheets ---------- */
 const root=document.getElementById("sheetRoot");
+let sheetOpener=null;
 function openSheet(html,onMount){
-  root.innerHTML=`<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  if(!root.innerHTML) sheetOpener=document.activeElement;
+  root.innerHTML=`<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">${html.replace("<h2>",'<h2 id="sheetTitle">')}</div></div>`;
+  document.getElementById("app").setAttribute("aria-hidden","true");
   const scrim=root.querySelector("#scrim");
   scrim.addEventListener("click",e=>{if(e.target===scrim)closeSheet()});
   onMount&&onMount(root.querySelector(".sheet"));
   const f=root.querySelector("[autofocus]"); f&&setTimeout(()=>f.focus(),60);
 }
-function closeSheet(){root.innerHTML=""}
+function closeSheet(){if(!root.innerHTML)return;root.innerHTML="";document.getElementById("app").removeAttribute("aria-hidden");
+  const o=sheetOpener;sheetOpener=null;if(o&&o.isConnected)try{o.focus({preventScroll:true})}catch(e){}}
+/* Keep Tab inside an open sheet */
+document.addEventListener("keydown",e=>{if(e.key!=="Tab"||!root.innerHTML)return;const f=[...root.querySelectorAll("button,input,select,textarea")].filter(x=>!x.disabled&&x.offsetParent);if(!f.length)return;
+  const a=f[0],z=f[f.length-1];if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 function armDelete(btn,fn,label){btn.addEventListener("click",()=>{if(btn.classList.contains("armed")){fn()}else{btn.classList.add("armed");btn.textContent=label||"Tap again to delete"}})}
 
