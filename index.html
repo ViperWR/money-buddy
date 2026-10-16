@@ -394,7 +394,7 @@ function cycleLabel(s,e){return (S.payday||1)===1?monthName(s.slice(0,7)):`${fmt
 
 /* Savings projection: monthly compounding, deposit at month end */
 function project(g){
-  const r=num(g.rate)/100/12; let bal=num(g.saved), m=0, dep=0; const pts=[bal];
+  const r=monthlyRate(g); let bal=num(g.saved), m=0, dep=0; const pts=[bal];
   if(bal>=g.target) return {months:0,pts,interest:0,dep:0,done:true};
   while(bal<g.target&&m<600){bal=bal*(1+r)+num(g.monthly);dep+=num(g.monthly);m++;pts.push(bal)}
   return {months:m,pts,interest:bal-num(g.saved)-dep,dep,done:false,reach:bal>=g.target};
@@ -402,7 +402,12 @@ function project(g){
 /* Whole months from now until a date (at least 1) */
 function monthsUntil(d){const a=new Date(),b=parse(d);return Math.max(1,(b.getFullYear()-a.getFullYear())*12+b.getMonth()-a.getMonth())}
 /* Monthly amount needed to grow `saved` to `target` in n months at `rate`% a year, compounding monthly */
-function needed(g,n){const r=num(g.rate)/100/12, gr=Math.pow(1+r,n), rest=num(g.target)-num(g.saved)*gr;
+/* Interest per month, converted from the yearly rate and how often it compounds */
+const COMPOUND={monthly:12,daily:365,yearly:1};
+function monthlyRate(g){const R=num(g.rate)/100, n=COMPOUND[g.comp]||12;return R?Math.pow(1+R/n,n/12)-1:0}
+/* What an amount `months` from now is worth in today's money */
+const todayMoney=(v,infl,months)=>v/Math.pow(1+num(infl)/100,months/12);
+function needed(g,n){const r=monthlyRate(g), gr=Math.pow(1+r,n), rest=num(g.target)-num(g.saved)*gr;
   if(rest<=0) return 0; return r?rest*r/(gr-1):rest/n}
 function monthsLater(m){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+m);return d.toLocaleDateString(undefined,{month:"short",year:"numeric"})}
 
@@ -509,7 +514,8 @@ function goalCard(g,p){
     <div class="goalhead">${ring(Math.min(100,pct))}<div style="min-width:0;flex:1"><div class="name">${esc(g.name)}</div>
       <div class="amount-lg num" style="margin-top:2px">${money(num(g.saved))} <span class="muted" style="font-size:.85rem;font-weight:600">of ${money(g.target)}</span></div></div></div>
     ${spark(g,p)}
-    <div class="row" style="flex-wrap:wrap"><span class="chip"${behind?` style="background:var(--warn-soft);color:var(--warn)"`:""}>${when}</span><span class="muted" style="font-size:.8rem;font-weight:600">${num(g.monthly)?`${money(num(g.monthly))}/month`:""}${num(g.rate)?` · ${num(g.rate)}% · +${money(p.interest)} interest`:""}</span></div>
+    <div class="row" style="flex-wrap:wrap"><span class="chip"${behind?` style="background:var(--warn-soft);color:var(--warn)"`:""}>${when}</span><span class="muted" style="font-size:.8rem;font-weight:600">${num(g.monthly)?`${money(num(g.monthly))}/month`:""}${num(g.rate)?` · ${num(g.rate)}%${g.comp&&g.comp!=="monthly"?" "+g.comp:""} · +${money(p.interest)} interest`:""}</span></div>
+    ${num(g.infl)&&!p.done&&(g.by||p.reach)?`<div class="muted" style="font-size:.78rem;font-weight:600">Worth about ${money(todayMoney(g.target,g.infl,g.by?monthsUntil(g.by):p.months))} in today's money, with ${num(g.infl)}% inflation.</div>`:""}
     <div class="actions"><button class="btn" data-deposit="${g.id}" style="padding:12px">Add money</button><button class="btn ghost" data-edit-goal="${g.id}" style="padding:12px">Edit plan</button></div>
   </div>`;
 }
@@ -520,7 +526,7 @@ function viewSavings(){
     <div class="track"><i style="width:${target?Math.min(100,total/target*100):0}%"></i></div>
     <div class="sub">${Math.round(target?total/target*100:0)}% of ${money(target)} across ${S.goals.length} goal${S.goals.length===1?"":"s"} · ${money(m.saved)} added this month</div></section>
   <div class="list">${S.goals.map(g=>goalCard(g,project(g))).join("")}</div>
-  <p class="hint">Money you add to a goal comes out of what you have left to spend. Projections assume monthly compounding with your contribution at month end.</p>`
+  <p class="hint">Money you add to a goal comes out of what you have left to spend. Projections add your monthly amount at month end and compound interest the way you pick on each goal.</p>`
   :`<div class="empty">Set a target, a monthly amount and an interest rate to see when you'll get there.<button class="linkbtn" data-new="goal">Plan a goal</button></div>`}`;
 }
 
@@ -766,23 +772,27 @@ function sheetGoal(id){
     <div class="field"><label for="g-s">Already saved</label><input id="g-s" class="num" inputmode="decimal" value="${g.saved}"></div></div>
     <div class="two"><div class="field"><label for="g-m">Add each month</label><input id="g-m" class="num" inputmode="decimal" value="${g.monthly}"></div>
     <div class="field"><label for="g-r">Interest, % a year</label><input id="g-r" class="num" inputmode="decimal" value="${g.rate}" placeholder="0"></div></div>
-    <div class="field"><label for="g-by">Reach it by (optional)</label><input id="g-by" type="date" value="${g.by||""}" min="${today()}"></div>
+    <div class="field"><span class="flabel">Interest is added</span><div class="seg" id="g-comp">${[["daily","Daily"],["monthly","Monthly"],["yearly","Yearly"]].map(([k,l])=>`<button type="button" data-c="${k}">${l}</button>`).join("")}</div></div>
+    <div class="two"><div class="field"><label for="g-by">Reach it by (optional)</label><input id="g-by" type="date" value="${g.by||""}" min="${today()}"></div>
+    <div class="field"><label for="g-inf">Inflation, % a year</label><input id="g-inf" class="num" inputmode="decimal" value="${g.infl||""}" placeholder="0"></div></div>
     <p class="hint">"Already saved" is money you set aside before, so it isn't taken from this month. Use "Add money" on the goal for new deposits.</p>
     <div class="preview" id="g-prev"></div>
     <div class="actions">${id?`<button type="button" class="btn danger" id="del">Delete</button>`:""}<button type="button" class="btn ghost" id="cancel">Cancel</button><button class="btn" type="submit">${id?"Save":"Create goal"}</button></div></form>`,sh=>{
-    const v=k=>sh.querySelector(k).value;
-    const upd=()=>{const t=num(v("#g-t"));const prev=sh.querySelector("#g-prev");if(t<=0){prev.innerHTML=`<span class="muted">Enter a target to see your goal date.</span>`;return}
-      const gg={target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r"))}, p=project(gg), by=v("#g-by");
+    const v=k=>sh.querySelector(k).value; let comp=g.comp||"monthly";
+    const upd=()=>{sh.querySelectorAll("#g-comp button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.c===comp));const t=num(v("#g-t"));const prev=sh.querySelector("#g-prev");if(t<=0){prev.innerHTML=`<span class="muted">Enter a target to see your goal date.</span>`;return}
+      const gg={target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r")),comp}, p=project(gg), by=v("#g-by"), inf=num(v("#g-inf"));
       let html=p.done?"<b>Already reached.</b>":p.reach?`<span>You'd reach it by <b>${monthsLater(p.months)}</b> (${p.months} months).</span><span class="muted">You put in <span class="num">${money(p.dep)}</span>, interest adds <span class="num">${money(p.interest)}</span>.</span>`:`<span>${gg.monthly?"At this rate it takes over 50 years. Try adding more each month.":"Add an amount each month, or pick a date to see what you need."}</span>`;
       if(by&&!p.done){const n=monthsUntil(by), need=Math.ceil(needed(gg,n));
         html+=`<span>To reach it by <b>${fmtDate(by,{month:"short",year:"numeric"})}</b> you need <b class="num">${money(need)}</b> a month.${need!==gg.monthly?` <button type="button" class="linkbtn" id="g-use" style="display:inline;padding:0">Use this</button>`:""}</span>`}
+      if(inf>0&&!p.done&&(by||p.reach)) html+=`<span class="muted">With ${inf}% inflation, ${money(t)} then will buy about what <b class="num">${money(todayMoney(t,inf,by?monthsUntil(by):p.months))}</b> buys today.</span>`;
       prev.innerHTML=html;
       const use=prev.querySelector("#g-use"); if(use) use.onclick=()=>{sh.querySelector("#g-m").value=Math.ceil(needed(gg,monthsUntil(by)));upd()}};
+    sh.querySelectorAll("#g-comp button").forEach(b=>b.onclick=()=>{comp=b.dataset.c;upd()});
     sh.querySelectorAll("input").forEach(i=>{i.addEventListener("input",upd);i.addEventListener("change",upd)});upd();
     sh.querySelector("#cancel").onclick=closeSheet;
     if(id) armDelete(sh.querySelector("#del"),()=>withUndo("Goal deleted",()=>{S.goals=S.goals.filter(x=>x.id!==id)}));
     sh.querySelector("#f").addEventListener("submit",e=>{e.preventDefault();const t=num(v("#g-t"));if(t<=0){sh.querySelector("#g-t").focus();return}
-      const ng=Object.assign(id?g:{id:uid()},{name:v("#g-n").trim()||"Goal",target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r")),by:v("#g-by")});
+      const ng=Object.assign(id?g:{id:uid()},{name:v("#g-n").trim()||"Goal",target:t,saved:num(v("#g-s")),monthly:num(v("#g-m")),rate:num(v("#g-r")),comp,infl:num(v("#g-inf")),by:v("#g-by")});
       if(!id)S.goals.push(ng);closeSheet();touched();toast(id?"Plan saved":"Goal created")});
   });
 }
