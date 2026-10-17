@@ -206,6 +206,13 @@ nav.tabs button.t[aria-current="page"] i{background:var(--brand-soft);color:var(
 form{display:flex;flex-direction:column;gap:14px}
 .field{display:flex;flex-direction:column;gap:6px}
 .field>label,.flabel{font-size:.8rem;font-weight:700;color:var(--muted)}
+.cmpgrid{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px 10px;align-items:center;font-size:.88rem}
+.cmpgrid .h{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.cmpgrid .k{color:var(--muted);font-weight:600}
+.cmpgrid .v{font-weight:700;font-variant-numeric:tabular-nums}
+.cmpgrid input{padding:9px 10px}
+.cmpgrid .b{color:var(--brand)}
+.toolbtn{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;cursor:pointer;color:inherit;font:inherit}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .two>*{min-width:0}
 input,select{font:inherit;font-size:16px;font-weight:600;color:var(--ink);background:var(--sunk);border:1.5px solid transparent;border-radius:14px;padding:12px 14px;width:100%;transition:border-color .15s}
@@ -516,6 +523,7 @@ function goalCard(g,p){
     ${spark(g,p)}
     <div class="row" style="flex-wrap:wrap"><span class="chip"${behind?` style="background:var(--warn-soft);color:var(--warn)"`:""}>${when}</span><span class="muted" style="font-size:.8rem;font-weight:600">${num(g.monthly)?`${money(num(g.monthly))}/month`:""}${num(g.rate)?` · ${num(g.rate)}%${g.comp&&g.comp!=="monthly"?" "+g.comp:""} · +${money(p.interest)} interest`:""}</span></div>
     ${num(g.infl)&&!p.done&&(g.by||p.reach)?`<div class="muted" style="font-size:.78rem;font-weight:600">Worth about ${money(todayMoney(g.target,g.infl,g.by?monthsUntil(g.by):p.months))} in today's money, with ${num(g.infl)}% inflation.</div>`:""}
+    ${p.done?"":`<button class="linkbtn" data-whatif="${g.id}" style="align-self:flex-start;padding:0">What if I save more?</button>`}
     <div class="actions"><button class="btn" data-deposit="${g.id}" style="padding:12px">Add money</button><button class="btn ghost" data-edit-goal="${g.id}" style="padding:12px">Edit plan</button></div>
   </div>`;
 }
@@ -526,8 +534,10 @@ function viewSavings(){
     <div class="track"><i style="width:${target?Math.min(100,total/target*100):0}%"></i></div>
     <div class="sub">${Math.round(target?total/target*100:0)}% of ${money(target)} across ${S.goals.length} goal${S.goals.length===1?"":"s"} · ${money(m.saved)} added this month</div></section>
   <div class="list">${S.goals.map(g=>goalCard(g,project(g))).join("")}</div>
+  <button class="card rise toolbtn" data-fd="1"><span><span class="name" style="display:block">Fixed deposit calculator</span><span class="muted" style="font-size:.8rem;font-weight:600">See what a deposit is worth when it matures</span></span><span aria-hidden="true" style="font-size:1.3rem;color:var(--muted)">›</span></button>
   <p class="hint">Money you add to a goal comes out of what you have left to spend. Projections add your monthly amount at month end and compound interest the way you pick on each goal.</p>`
-  :`<div class="empty">Set a target, a monthly amount and an interest rate to see when you'll get there.<button class="linkbtn" data-new="goal">Plan a goal</button></div>`}`;
+  :`<div class="empty">Set a target, a monthly amount and an interest rate to see when you'll get there.<button class="linkbtn" data-new="goal">Plan a goal</button></div>
+  <button class="card rise toolbtn" data-fd="1" style="margin-top:14px"><span><span class="name" style="display:block">Fixed deposit calculator</span><span class="muted" style="font-size:.8rem;font-weight:600">See what a deposit is worth when it matures</span></span><span aria-hidden="true" style="font-size:1.3rem;color:var(--muted)">›</span></button>`}`;
 }
 
 const sortTx=(a,b)=>a.date<b.date?1:a.date>b.date?-1:0;
@@ -826,6 +836,55 @@ function sheetDeposit(id){
   });
 }
 
+/* Two plans for one goal side by side */
+function sheetWhatIf(id){
+  const g=S.goals.find(x=>x.id===id); if(!g) return;
+  const m0=num(g.monthly), r0=num(g.rate);
+  openSheet(`<h2>What if: ${esc(g.name)}</h2><p class="hint">Change the right column to compare it with your current plan.</p><form id="f">
+    <div class="cmpgrid"><span></span><span class="h">Now</span><span class="h">What if</span>
+      <span class="k">Each month</span><span class="v num">${money(m0)}</span><input id="w-m" class="num" inputmode="decimal" value="${Math.round(m0*1.2)||100}" aria-label="What if: amount each month">
+      <span class="k">Interest %</span><span class="v num">${r0}%</span><input id="w-r" class="num" inputmode="decimal" value="${r0}" aria-label="What if: interest">
+      <span class="k">Done by</span><span class="v" id="a-d"></span><span class="v b" id="b-d"></span>
+      <span class="k">You put in</span><span class="v num" id="a-p"></span><span class="v num b" id="b-p"></span>
+      <span class="k">Interest</span><span class="v num" id="a-i"></span><span class="v num b" id="b-i"></span></div>
+    <div class="preview" id="w-sum"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="cancel">Close</button><button class="btn" type="submit">Use the new plan</button></div></form>`,sh=>{
+    const q=k=>sh.querySelector(k), A=project(g);
+    const fill=(x,p)=>{q("#"+x+"-d").textContent=p.reach?monthsLater(p.months):"50+ years";q("#"+x+"-p").textContent=money(p.dep);q("#"+x+"-i").textContent=money(p.interest)};
+    fill("a",A);
+    const upd=()=>{const B=project(Object.assign({},g,{monthly:num(q("#w-m").value),rate:num(q("#w-r").value)}));fill("b",B);
+      const d=A.reach&&B.reach?A.months-B.months:null, di=B.interest-A.interest;
+      q("#w-sum").innerHTML=d===null?(B.reach?"<span>The new plan gets you there. The current one doesn't.</span>":"<span>Neither plan reaches the goal within 50 years.</span>")
+        :`<span>${d>0?`You'd finish <b>${d} month${d===1?"":"s"} sooner</b>`:d<0?`You'd finish <b>${-d} month${d===-1?"":"s"} later</b>`:"You'd finish in the same month"}${Math.abs(di)>=1?`, with <b class="num">${money(Math.abs(di))}</b> ${di>0?"more":"less"} interest`:""}.</span>`};
+    sh.querySelectorAll("input").forEach(i=>i.addEventListener("input",upd));upd();
+    q("#cancel").onclick=closeSheet;
+    q("#f").addEventListener("submit",e=>{e.preventDefault();g.monthly=num(q("#w-m").value);g.rate=num(q("#w-r").value);closeSheet();touched();toast("Plan updated")});
+  });
+}
+
+/* Fixed deposit: value at maturity */
+function sheetFD(){
+  openSheet(`<h2>Fixed deposit calculator</h2><form id="f">
+    <div class="two"><div class="field"><label for="fd-a">Amount</label><input id="fd-a" class="num" inputmode="decimal" placeholder="0" autofocus></div>
+    <div class="field"><label for="fd-r">Interest, % a year</label><input id="fd-r" class="num" inputmode="decimal" placeholder="0"></div></div>
+    <div class="field"><label for="fd-t">Term (months)</label><input id="fd-t" class="num" inputmode="numeric" value="12"></div>
+    <div class="field"><span class="flabel">Interest is added</span><div class="seg" id="fd-c">${[["monthly","Monthly"],["yearly","Yearly"],["end","At the end"]].map(([k,l])=>`<button type="button" data-c="${k}">${l}</button>`).join("")}</div></div>
+    <div class="preview" id="fd-out"></div>
+    <div class="actions"><button class="btn" type="submit">Done</button></div></form>`,sh=>{
+    let c="monthly"; const q=k=>sh.querySelector(k);
+    const upd=()=>{sh.querySelectorAll("#fd-c button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.c===c));
+      const P=num(q("#fd-a").value), R=num(q("#fd-r").value)/100, mo=Math.max(1,Math.round(num(q("#fd-t").value))||12), y=mo/12;
+      if(!P||!R){q("#fd-out").innerHTML=`<span class="muted">Enter an amount and an interest rate.</span>`;return}
+      const V=c==="end"?P*(1+R*y):c==="yearly"?P*Math.pow(1+R,y):P*Math.pow(1+R/12,mo);
+      const ear=c==="end"?Math.pow(V/P,1/y)-1:c==="yearly"?R:Math.pow(1+R/12,12)-1;
+      const end=new Date();end.setMonth(end.getMonth()+mo);
+      q("#fd-out").innerHTML=`<span>On <b>${end.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}</b> you'd get <b class="num">${money(V,true)}</b>.</span><span class="muted">That's <span class="num">${money(V-P,true)}</span> interest, about <span class="num">${(ear*100).toFixed(2)}%</span> a year once compounding is counted.</span>`};
+    sh.querySelectorAll("#fd-c button").forEach(b=>b.onclick=()=>{c=b.dataset.c;upd()});
+    sh.querySelectorAll("input").forEach(i=>i.addEventListener("input",upd));upd();
+    q("#f").addEventListener("submit",e=>{e.preventDefault();closeSheet()});
+  });
+}
+
 function sheetRecurring(id){
   const r=S.recurring.find(x=>x.id===id); if(!r) return;
   openSheet(`<h2>${esc(recName(r))}</h2><p class="hint">${freqText(r)}. Payments already recorded stay as they are.</p><form id="f">
@@ -905,6 +964,8 @@ document.addEventListener("click",e=>{
   if(t.dataset.editRec) return sheetRecurring(t.dataset.editRec);
   if(t.dataset.editGoal) return sheetGoal(t.dataset.editGoal);
   if(t.dataset.deposit) return sheetDeposit(t.dataset.deposit);
+  if(t.dataset.whatif) return sheetWhatIf(t.dataset.whatif);
+  if(t.dataset.fd) return sheetFD();
   if(t.dataset.editTx) return sheetExpense(t.dataset.editTx);
   if(t.dataset.editIn) return sheetIncomeEdit(t.dataset.editIn);
 });
