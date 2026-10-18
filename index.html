@@ -661,11 +661,16 @@ document.addEventListener("keydown",e=>{if(e.key!=="Tab"||!root.innerHTML)return
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 function armDelete(btn,fn,label){btn.addEventListener("click",()=>{if(btn.classList.contains("armed")){fn()}else{btn.classList.add("armed");btn.textContent=label||"Tap again to delete"}})}
 
+/* Short buzz on phones that support it (Android); silently ignored elsewhere */
+const buzz=()=>{try{navigator.vibrate&&navigator.vibrate(12)}catch(e){}};
+/* The last few distinct things you spent on, newest first */
+function recentPicks(){const seen=new Set(),out=[];for(const x of S.expenses.slice().sort(sortTx)){const k=(x.note||"").trim();if(!k||seen.has(k.toLowerCase()))continue;seen.add(k.toLowerCase());out.push(x);if(out.length>=6)break}return out}
 function sheetExpense(id){
   const x=id?S.expenses.find(e=>e.id===id):null; if(id&&!x) return;
   let sel=x?(x.budgetId&&budgetById(x.budgetId)?x.budgetId:""):(S.lastBudget&&budgetById(S.lastBudget)?S.lastBudget:(S.budgets[0]?.id||""));
   openSheet(`<h2>${x?"Edit expense":"Add expense"}</h2><form id="f">
     <div class="field"><label for="e-amt">Amount (${S.currency})</label><input class="amount" id="e-amt" inputmode="decimal" placeholder="0.00" value="${x?x.amount:""}" ${x?"":"autofocus"} required></div>
+    ${!id&&recentPicks().length?`<div class="field"><span class="flabel">Recent</span><div class="chips" id="e-rec">${recentPicks().map(x=>{const b=budgetById(x.budgetId);return `<button type="button" data-n="${esc(x.note)}" data-b="${b?b.id:""}" data-a="${x.amount}"><i style="background:${b?b.color:"var(--muted)"}"></i>${esc(x.note)}</button>`}).join("")}</div></div>`:""}
     <div class="field"><span class="flabel">Budget</span><div class="chips" id="e-b">${S.budgets.map(b=>`<button type="button" data-b="${b.id}"><i style="background:${b.color}"></i>${esc(b.name)}</button>`).join("")}<button type="button" data-b=""><i style="background:var(--muted)"></i>No budget</button></div></div>
     <div class="two"><div class="field"><label for="e-note">What for</label><input id="e-note" placeholder="e.g. Coffee" value="${x?esc(x.note):""}"></div>
     <div class="field"><label for="e-d" id="e-dl">Date</label><input id="e-d" type="date" value="${x?x.date:today()}"></div></div>
@@ -680,6 +685,9 @@ function sheetExpense(id){
       const b=budgetById(sel);if(!b){prev.hidden=true;return}const st=stats(b),after=st.remaining-num(amt.value)+(x&&x.budgetId===sel&&x.date>=st.s&&x.date<=st.e?x.amount:0);
       prev.hidden=false;prev.innerHTML=`<span>After this, <b>${esc(b.name)}</b> has <b class="num" style="color:${after<0?"var(--bad)":"inherit"}">${money(after)}</b> left${st.total>1?` (<span class="num">${money(Math.max(0,after)/st.left)}</span> a day)`:""}.</span>`};
     sh.querySelectorAll("#e-b button").forEach(b=>b.onclick=()=>{sel=b.dataset.b;upd()});
+    /* A recent pick fills the note and budget; the amount too if none is typed yet */
+    sh.querySelectorAll("#e-rec button").forEach(b=>b.onclick=()=>{sh.querySelector("#e-note").value=b.dataset.n;sel=b.dataset.b;if(!amt.value)amt.value=b.dataset.a;
+      sh.querySelectorAll("#e-rec button").forEach(y=>y.setAttribute("aria-pressed",y===b));buzz();upd();amt.focus();amt.select()});
     sh.querySelectorAll("#e-rep button").forEach(b=>b.onclick=()=>{freq=b.dataset.f;upd()});
     sh.querySelector("#e-d").addEventListener("change",upd);
     amt.addEventListener("input",upd);upd();
@@ -689,6 +697,7 @@ function sheetExpense(id){
       const v={amount:Math.round(a*100)/100,budgetId:sel||null,date:sh.querySelector("#e-d").value||today(),note:sh.querySelector("#e-note").value.trim()};
       if(x){Object.assign(x,v);closeSheet();touched();return toast("Expense saved")}
       S.lastBudget=sel;
+      buzz();
       if(freq==="none"){S.expenses.push(Object.assign({id:uid()},v));closeSheet();touched();return toast("Expense added")}
       S.recurring.push({id:uid(),kind:"expense",amount:v.amount,budgetId:v.budgetId,note:v.note,freq,start:v.date,posted:""});postDue();
       closeSheet();touched();toast(v.date>today()?"Bill scheduled from "+fmtDate(v.date):"Bill added and set to repeat")});
