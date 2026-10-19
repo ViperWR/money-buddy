@@ -319,9 +319,11 @@ function exampleState(){
            {id:id(),name:"Holiday in Mozambique",target:18000,saved:2500,monthly:1200,rate:5}]};
 }
 let S; let mem=null;
-function load(){try{const raw=localStorage.getItem(KEY);if(raw) return JSON.parse(raw)}catch(e){} return mem||exampleState()}
-function save(){mem=S;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-S=load(); S.incomes=S.incomes||[]; S.recurring=S.recurring||[]; S.transfers=S.transfers||[];
+/* If saved data can't be read, keep a copy aside instead of letting the next save overwrite it */
+function load(){let raw=null;try{raw=localStorage.getItem(KEY);if(raw){const d=JSON.parse(raw);if(d&&typeof d==="object")return d}}catch(e){try{if(raw)localStorage.setItem(KEY+":unreadable",raw)}catch(e2){}} return mem||exampleState()}
+let saveWarned=false;
+function save(){mem=S;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){if(!saveWarned){saveWarned=true;setTimeout(()=>toast("Couldn't save on this phone. Use Settings > Backup to keep a copy."),400)}}}
+S=load(); ["budgets","expenses","incomes","recurring","transfers","goals"].forEach(k=>{if(!Array.isArray(S[k]))S[k]=[]});
 if(S.carry===undefined) S.carry=true;
 if(!S.payday){const sal=S.recurring.find(r=>r.kind==="income"&&r.freq==="monthly"&&r.source==="Salary");S.payday=sal?parse(sal.start).getDate():1}
 const INCOME_SOURCES=["Salary","Side work","Business","Gift","Refund","Interest","Other"];
