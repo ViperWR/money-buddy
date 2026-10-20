@@ -589,14 +589,18 @@ function viewExpenses(){
   <div id="txlist">${txList()}</div>`;
 }
 let query="";
+/* Long histories render the newest rows first; "Show more" adds the next batch */
+let shown=150;
 function txList(){
   const q=query.trim().toLowerCase(); let list=S.expenses.slice().sort(sortTx);
-  if(!q) return txGroups(list);
-  list=list.filter(x=>{const b=budgetById(x.budgetId);return (x.note||"").toLowerCase().includes(q)||(b&&b.name.toLowerCase().includes(q))||String(x.amount).startsWith(q.replace(/[^0-9.]/g,"")||"~")});
-  if(!list.length) return `<div class="empty">Nothing matches "${esc(query.trim())}".</div>`;
-  return `<div class="qsum">${list.length} found · ${money(list.reduce((a,x)=>a+x.amount,0),true)} in total</div>`+txGroups(list);
+  if(q) list=list.filter(x=>{const b=budgetById(x.budgetId);return (x.note||"").toLowerCase().includes(q)||(b&&b.name.toLowerCase().includes(q))||String(x.amount).startsWith(q.replace(/[^0-9.]/g,"")||"~")});
+  if(q&&!list.length) return `<div class="empty">Nothing matches "${esc(query.trim())}".</div>`;
+  const more=list.length-shown;
+  return (q?`<div class="qsum">${list.length} found · ${money(list.reduce((a,x)=>a+x.amount,0),true)} in total</div>`:"")+txGroups(list.slice(0,shown))
+    +(more>0?`<button class="btn ghost" data-more="1" style="width:100%;margin-top:12px">Show ${Math.min(more,300)} more</button>`:"");
 }
-document.addEventListener("input",e=>{if(e.target.id==="q"){query=e.target.value;document.getElementById("txlist").innerHTML=txList()}});
+let qTimer=0;
+document.addEventListener("input",e=>{if(e.target.id==="q"){query=e.target.value;shown=150;clearTimeout(qTimer);qTimer=setTimeout(()=>{const el=document.getElementById("txlist");if(el)el.innerHTML=txList()},120)}});
 function viewIncome(){
   const m=monthTotals(today()), avail=m.inc+m.carried;
   const list=S.incomes.slice().sort(sortTx);
@@ -635,7 +639,7 @@ function countUp(root){
   const step=now=>{const k=Math.min(1,(now-t0)/D);els.forEach(el=>{const v=+el.dataset.count;el.textContent=money(v*ease(k),el.dataset.dec==="1")});if(k<1)requestAnimationFrame(step)};
   requestAnimationFrame(step);
 }
-function go(t){tab=t;animateNext=true;try{localStorage.setItem(KEY+":tab",t)}catch(e){}render();window.scrollTo(0,0)}
+function go(t){tab=t;shown=150;animateNext=true;try{localStorage.setItem(KEY+":tab",t)}catch(e){}render();window.scrollTo(0,0)}
 function toast(msg,label,fn){document.querySelectorAll(".toast").forEach(x=>x.remove());const el=document.createElement("div");el.className="toast";el.setAttribute("role","status");el.textContent=msg;
   if(label){const b=document.createElement("button");b.type="button";b.textContent=label;b.onclick=()=>{el.remove();fn()};el.appendChild(b)}
   document.body.appendChild(el);setTimeout(()=>el.remove(),label?5000:1900)}
@@ -977,6 +981,7 @@ document.addEventListener("click",e=>{
   if(t.dataset.deposit) return sheetDeposit(t.dataset.deposit);
   if(t.dataset.whatif) return sheetWhatIf(t.dataset.whatif);
   if(t.dataset.fd) return sheetFD();
+  if(t.dataset.more){shown+=300;const el=document.getElementById("txlist");if(el)el.innerHTML=txList();return}
   if(t.dataset.editTx) return sheetExpense(t.dataset.editTx);
   if(t.dataset.editIn) return sheetIncomeEdit(t.dataset.editIn);
 });
