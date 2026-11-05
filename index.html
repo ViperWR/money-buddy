@@ -122,6 +122,7 @@ button.card:active{transform:scale(.985)}
 .glabel{font-size:.78rem;color:var(--muted);font-weight:700;padding:6px 4px 2px;display:flex;justify-content:space-between}
 .txs{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
 .tx{display:flex;align-items:center;gap:12px;padding:12px 14px}
+#txlist .group{content-visibility:auto;contain-intrinsic-size:auto 200px}
 .tx+.tx{border-top:1px solid var(--line)}
 .tx .badge{width:36px;height:36px;border-radius:12px;font-size:.78rem}
 .tx .what{flex:1;min-width:0}
@@ -354,7 +355,7 @@ const REPEATS=[["none","Once"],["monthly","Monthly"],["fortnightly","2 weeks"],[
 const ordinal=n=>{const s=["th","st","nd","rd"],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0])};
 function freqText(r){
   if(r.freq==="monthly") return `Every month on the ${ordinal(parse(r.start).getDate())}`;
-  const wd=parse(r.start).toLocaleDateString(undefined,{weekday:"long"});
+  const wd=fmtDate(r.start,{weekday:"long"});
   return r.freq==="weekly"?`Every ${wd}`:`Every second ${wd}`;
 }
 const blank=()=>({currency:S.currency,weekStart:S.weekStart,example:false,payday:1,carry:S.carry,budgets:[],expenses:[],incomes:[],recurring:[],transfers:[],goals:[]});
@@ -367,7 +368,10 @@ function money(v,dec){const k=S.currency+(dec?"d":"");if(!fmtCache[k]){try{fmtCa
 /* A number that counts up when its tab opens */
 const cnt=(v,dec)=>`<span class="num" data-count="${v}" data-dec="${dec?1:0}">${money(v,dec)}</span>`;
 const num=v=>{const n=parseFloat(String(v).replace(/\s/g,"").replace(",","."));return isFinite(n)?n:0};
-const fmtDate=(s,opt)=>parse(s).toLocaleDateString(undefined,opt||{day:"numeric",month:"short"});
+/* Building a date formatter is slow on older phones, so each one is made once and reused */
+const dateFmts={};
+const dateFmt=opt=>{const k=JSON.stringify(opt);return dateFmts[k]||(dateFmts[k]=new Intl.DateTimeFormat(undefined,opt))};
+const fmtDate=(s,opt)=>dateFmt(opt||{day:"numeric",month:"short"}).format(parse(s));
 const budgetById=id=>S.budgets.find(b=>b.id===id);
 const initials=n=>String(n||"?").trim().split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
 const badge=(name,color)=>`<span class="badge" style="background:color-mix(in srgb,${color} 16%,transparent);color:${color}">${esc(initials(name))}</span>`;
@@ -398,7 +402,7 @@ function monthTotals(ref){
   const carried=S.carry===false?0:sumIn("0000-01-01",pe)-sumOut("0000-01-01",pe)-sumSaved("0000-01-01",pe);
   return {s,e,inc,out,saved,carried:Math.round(carried*100)/100};
 }
-const monthName=ym=>parse(ym+"-01").toLocaleDateString(undefined,{month:"long",year:ym.slice(0,4)===today().slice(0,4)?undefined:"numeric"});
+const monthName=ym=>fmtDate(ym+"-01",ym.slice(0,4)===today().slice(0,4)?{month:"long"}:{month:"long",year:"numeric"});
 function cycleLabel(s,e){return (S.payday||1)===1?monthName(s.slice(0,7)):`${fmtDate(s)} – ${fmtDate(e)}`}
 
 /* Savings projection: monthly compounding, deposit at month end */
@@ -550,7 +554,7 @@ function txGroups(list){
     <div class="what"><div>${esc(x.note||b?.name||"Expense")}</div><div>${b?esc(b.name):"No budget"}${x.recurringId?" · repeats":""}</div></div>
     <span class="amt num">−${money(x.amount,true)}</span></button>`};
   const days={}; list.forEach(x=>(days[x.date]=days[x.date]||[]).push(x));
-  return Object.keys(days).sort().reverse().map(d=>`<div class="group rise"><div class="glabel"><span>${dayLabel(d)}</span><span class="num">${money(days[d].reduce((a,x)=>a+x.amount,0),true)}</span></div><div class="txs">${days[d].map(row).join("")}</div></div>`).join("");
+  return Object.keys(days).sort().reverse().map((d,i)=>`<div class="group${i<4?" rise":""}"><div class="glabel"><span>${dayLabel(d)}</span><span class="num">${money(days[d].reduce((a,x)=>a+x.amount,0),true)}</span></div><div class="txs">${days[d].map(row).join("")}</div></div>`).join("");
 }
 function viewExpenses(){
   const t=today(), m=monthTotals(t);
@@ -590,17 +594,18 @@ function viewExpenses(){
 }
 let query="";
 /* Long histories render the newest rows first; "Show more" adds the next batch */
-let shown=150;
+const FIRST_ROWS=60;
+let shown=FIRST_ROWS;
 function txList(){
   const q=query.trim().toLowerCase(); let list=S.expenses.slice().sort(sortTx);
   if(q) list=list.filter(x=>{const b=budgetById(x.budgetId);return (x.note||"").toLowerCase().includes(q)||(b&&b.name.toLowerCase().includes(q))||String(x.amount).startsWith(q.replace(/[^0-9.]/g,"")||"~")});
   if(q&&!list.length) return `<div class="empty">Nothing matches "${esc(query.trim())}".</div>`;
   const more=list.length-shown;
   return (q?`<div class="qsum">${list.length} found · ${money(list.reduce((a,x)=>a+x.amount,0),true)} in total</div>`:"")+txGroups(list.slice(0,shown))
-    +(more>0?`<button class="btn ghost" data-more="1" style="width:100%;margin-top:12px">Show ${Math.min(more,300)} more</button>`:"");
+    +(more>0?`<button class="btn ghost" data-more="1" style="width:100%;margin-top:12px">Show ${Math.min(more,200)} more</button>`:"");
 }
 let qTimer=0;
-document.addEventListener("input",e=>{if(e.target.id==="q"){query=e.target.value;shown=150;clearTimeout(qTimer);qTimer=setTimeout(()=>{const el=document.getElementById("txlist");if(el)el.innerHTML=txList()},120)}});
+document.addEventListener("input",e=>{if(e.target.id==="q"){query=e.target.value;shown=FIRST_ROWS;clearTimeout(qTimer);qTimer=setTimeout(()=>{const el=document.getElementById("txlist");if(el)el.innerHTML=txList()},120)}});
 function viewIncome(){
   const m=monthTotals(today()), avail=m.inc+m.carried;
   const list=S.incomes.slice().sort(sortTx);
@@ -639,7 +644,7 @@ function countUp(root){
   const step=now=>{const k=Math.min(1,(now-t0)/D);els.forEach(el=>{const v=+el.dataset.count;el.textContent=money(v*ease(k),el.dataset.dec==="1")});if(k<1)requestAnimationFrame(step)};
   requestAnimationFrame(step);
 }
-function go(t){tab=t;shown=150;animateNext=true;try{localStorage.setItem(KEY+":tab",t)}catch(e){}render();window.scrollTo(0,0)}
+function go(t){tab=t;shown=FIRST_ROWS;animateNext=true;try{localStorage.setItem(KEY+":tab",t)}catch(e){}render();window.scrollTo(0,0)}
 function toast(msg,label,fn){document.querySelectorAll(".toast").forEach(x=>x.remove());const el=document.createElement("div");el.className="toast";el.setAttribute("role","status");el.textContent=msg;
   if(label){const b=document.createElement("button");b.type="button";b.textContent=label;b.onclick=()=>{el.remove();fn()};el.appendChild(b)}
   document.body.appendChild(el);setTimeout(()=>el.remove(),label?5000:1900)}
@@ -981,7 +986,7 @@ document.addEventListener("click",e=>{
   if(t.dataset.deposit) return sheetDeposit(t.dataset.deposit);
   if(t.dataset.whatif) return sheetWhatIf(t.dataset.whatif);
   if(t.dataset.fd) return sheetFD();
-  if(t.dataset.more){shown+=300;const el=document.getElementById("txlist");if(el)el.innerHTML=txList();return}
+  if(t.dataset.more){shown+=200;const el=document.getElementById("txlist");if(el)el.innerHTML=txList();return}
   if(t.dataset.editTx) return sheetExpense(t.dataset.editTx);
   if(t.dataset.editIn) return sheetIncomeEdit(t.dataset.editIn);
 });
@@ -990,6 +995,6 @@ if(postDue()) save();
 render();
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&postDue()){save();render()}});
 /* Offline install when hosted; silently skipped inside previews */
-try{if("serviceWorker" in navigator&&location.protocol==="https:"&&window.top===window.self) navigator.serviceWorker.register("sw.js").catch(()=>{})}catch(e){}
+try{if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost")&&window.top===window.self) navigator.serviceWorker.register("sw.js").catch(()=>{})}catch(e){}
 })();
 </script>
